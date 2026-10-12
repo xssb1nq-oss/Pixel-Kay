@@ -16,8 +16,8 @@ import database as db
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+BOT_TOKEN = os.getenv("8231081379:AAG2EXFZ7neHSIyFkwiAddkaQBudZvhmbCY")
+ADMIN_ID = int(os.getenv("8579605941"))
 WEBAPP_URL = os.getenv("WEBAPP_URL")
 MONO_CARD = os.getenv("MONO_CARD")
 
