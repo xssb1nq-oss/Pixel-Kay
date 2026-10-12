@@ -260,9 +260,6 @@ def upload_receipt(order_id):
                         {'photo':(f'receipt_{order_id}.{ext}',content,mime)})
         file_id = sent['photo'][-1]['file_id']
         run_async(db.update_order_receipt(order_id,file_id))
-        try:
-            api_call('sendMessage', {'chat_id':user['id'],'text':f'✅ Квитанция по заказу #{order_id} отправлена на проверку. Ключ начнёт действовать после подтверждения оплаты.'})
-        except Exception: logging.exception('Could not notify buyer about receipt')
         return jsonify({'ok':True,'message':'Квитанция отправлена на проверку'})
     except Exception:
         logging.exception('receipt forwarding failed')
@@ -337,9 +334,8 @@ def add_product_keys(product_id):
         keys=[x.strip() for x in str(data.get('keys','')).splitlines() if x.strip()]
         allowed=[int(x) for x in json.loads(cheat['durations'] or '[30]')]
         if duration not in allowed or not keys: raise ValueError()
-        for key in keys:
-            run_async(db.add_key(product_id,key,duration))
-        return jsonify({'ok':True,'added':len(keys)})
+        added=run_async(db.add_keys(product_id,keys,duration))
+        return jsonify({'ok':True,'added':added,'skipped':len(keys)-added})
     except Exception:
         logging.exception('add_product_keys failed')
         return jsonify({'error':'Проверь срок и список ключей (по одному на строку)'}),400
