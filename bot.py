@@ -10,7 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
-    PreCheckoutQuery, LabeledPrice, WebAppInfo, KeyboardButton, ReplyKeyboardMarkup)
+    PreCheckoutQuery, LabeledPrice, WebAppInfo)
 import database as db
 
 load_dotenv()
@@ -32,7 +32,10 @@ def pixel_header():
 
 
 def main_keyboard():
-    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text='🎮 Открыть магазин',web_app=WebAppInfo(url=WEBAPP_URL))]],resize_keyboard=True)
+    # An inline Web App button supplies Telegram-signed initData needed by profile/admin API.
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text='🎮 Открыть PIXEL KAY',web_app=WebAppInfo(url=WEBAPP_URL))
+    ]])
 
 
 def open_app_keyboard():
