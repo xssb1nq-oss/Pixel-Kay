@@ -2,13 +2,14 @@ import os
 import asyncio
 import threading
 import logging
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from dotenv import load_dotenv
 import database as db
 
 load_dotenv()
 
 app = Flask(__name__)
+
 
 def run_async(coro):
     loop = asyncio.new_event_loop()
@@ -18,9 +19,11 @@ def run_async(coro):
     finally:
         loop.close()
 
+
 @app.route("/")
 def index():
-    return app.send_static_file("index.html")
+    return send_from_directory(app.root_path, "index.html")
+
 
 @app.route("/api/cheats")
 def get_cheats():
@@ -41,6 +44,7 @@ def get_cheats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/api/cheat/<int:cheat_id>")
 def get_cheat(cheat_id):
     try:
@@ -59,6 +63,7 @@ def get_cheat(cheat_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/api/keys_count/<int:cheat_id>")
 def keys_count(cheat_id):
     try:
@@ -67,9 +72,11 @@ def keys_count(cheat_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 def run_bot():
     import bot
     asyncio.run(bot.main())
+
 
 if __name__ == "__main__":
     bot_thread = threading.Thread(target=run_bot, daemon=True)
