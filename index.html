@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIXEL KAY</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; image-rendering: pixelated; }
+
+  :root {
+    --bg: #0a0a0f;
+    --bg2: #12121a;
+    --bg3: #1a1a2e;
+    --accent: #00ff88;
+    --accent2: #ff6b00;
+    --accent3: #7c3aed;
+    --stars: #ffd700;
+    --text: #e0e0e0;
+    --text2: #888;
+    --border: #2a2a3e;
+    --card: #16162a;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Press Start 2P', monospace;
+    font-size: 8px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* PIXEL BORDER */
+  .pixel-border {
+    border: 3px solid var(--accent);
+    box-shadow:
+      0 0 0 1px var(--bg),
+      0 0 0 2px var(--accent),
+      inset 0 0 0 1px var(--bg);
+    image-rendering: pixelated;
+  }
+
+  .pixel-border-orange {
+    border: 3px solid var(--accent2);
+    box-shadow:
+      0 0 0 1px var(--bg),
+      0 0 0 2px var(--accent2),
+      inset 0 0 0 1px var(--bg);
+  }
+
+  .pixel-border-purple {
+    border: 3px solid var(--accent3);
+    box-shadow:
+      0 0 0 1px var(--bg),
+      0 0 0 2px var(--accent3),
+      inset 0 0 0 1px var(--bg);
+  }
+
+  /* HEADER */
+  .header {
+    background: var(--bg2);
+    padding: 16px 12px;
+    text-align: center;
+    border-bottom: 3px solid var(--accent);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .header-logo {
+    font-size: 14px;
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent), 3px 3px 0 #003322;
+    letter-spacing: 2px;
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+
+  @keyframes glow {
+    from { text-shadow: 0 0 10px var(--accent), 3px 3px 0 #003322; }
+    to { text-shadow: 0 0 20px var(--accent), 0 0 40px var(--accent), 3px 3px 0 #003322; }
+  }
+
+  .header-sub {
+    color: var(--text2);
+    font-size: 6px;
+    margin-top: 6px;
+    letter-spacing: 3px;
+  }
+
+  /* PIXEL SCANLINES */
+  .header::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.1) 2px,
+      rgba(0,0,0,0.1) 4px
+    );
+    pointer-events: none;
+  }
+
+  /* TABS */
+  .tabs {
+    display: flex;
+    background: var(--bg2);
+    border-bottom: 2px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+
+  .tab {
+    padding: 10px 14px;
+    font-size: 7px;
+    color: var(--text2);
+    cursor: pointer;
+    white-space: nowrap;
+    border-bottom: 3px solid transparent;
+    transition: all 0.1s;
+    flex-shrink: 0;
+  }
+
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    background: rgba(0,255,136,0.05);
+  }
+
+  /* CONTENT */
+  .content {
+    padding: 12px;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  /* SECTION TITLE */
+  .section-title {
+    font-size: 9px;
+    color: var(--accent);
+    margin: 16px 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-title::before {
+    content: '▸';
+    color: var(--accent2);
+  }
+
+  /* GAME FILTER */
+  .filters {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .filters::-webkit-scrollbar { display: none; }
+
+  .filter-btn {
+    padding: 6px 10px;
+    font-size: 6px;
+    font-family: 'Press Start 2P', monospace;
+    background: var(--bg2);
+    color: var(--text2);
+    border: 2px solid var(--border);
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all 0.1s;
+  }
+
+  .filter-btn.active {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+  }
+
+  /* CHEAT CARD */
+  .cheat-card {
+    background: var(--card);
+    margin-bottom: 16px;
+    padding: 14px;
+    cursor: pointer;
+    transition: transform 0.1s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cheat-card:active { transform: scale(0.98); }
+
+  .cheat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent3), var(--accent2));
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+    gap: 8px;
+  }
+
+  .card-name {
+    font-size: 9px;
+    color: var(--accent);
+    line-height: 1.6;
+    flex: 1;
+  }
+
+  .card-game-badge {
+    font-size: 5px;
+    padding: 4px 6px;
+    background: var(--accent3);
+    color: white;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .card-device {
+    font-size: 6px;
+    color: var(--text2);
+    margin-bottom: 8px;
+  }
+
+  .card-desc {
+    font-size: 6px;
+    color: var(--text2);
+    line-height: 1.8;
+    margin-bottom: 12px;
+  }
+
+  .card-prices {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .price-tag {
+    font-size: 7px;
+    padding: 5px 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .price-uah {
+    background: rgba(255,107,0,0.15);
+    color: var(--accent2);
+    border: 2px solid var(--accent2);
+  }
+
+  .price-stars {
+    background: rgba(255,215,0,0.1);
+    color: var(--stars);
+    border: 2px solid var(--stars);
+  }
+
+  .card-arrow {
+    position: absolute;
+    bottom: 14px;
+    right: 14px;
+    color: var(--accent);
+    font-size: 10px;
+  }
+
+  /* EMPTY STATE */
+  .empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text2);
+    font-size: 7px;
+    line-height: 2;
+  }
+
+  .empty-icon { font-size: 32px; margin-bottom: 16px; }
+
+  /* LOADING */
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--accent);
+    font-size: 7px;
+  }
+
+  .pixel-spinner {
+    display: inline-block;
+    width: 32px;
+    height: 32px;
+    border: 4px solid var(--bg3);
+    border-top-color: var(--accent);
+    animation: spin 0.8s steps(8) infinite;
+    margin-bottom: 16px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* MODAL */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 200;
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+  }
+
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: var(--bg2);
+    width: 100%;
+    max-width: 480px;
+    max-height: 90vh;
+    overflow-y: auto;
+    border-top: 3px solid var(--accent);
+    animation: slideUp 0.2s ease;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  @keyframes slideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+
+  .modal-header {
+    padding: 16px;
+    border-bottom: 2px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    background: var(--bg2);
+    z-index: 1;
+  }
+
+  .modal-title {
+    font-size: 9px;
+    color: var(--accent);
+  }
+
+  .modal-close {
+    font-size: 12px;
+    color: var(--text2);
+    cursor: pointer;
+    background: none;
+    border: none;
+    font-family: 'Press Start 2P', monospace;
+    padding: 4px 8px;
+  }
+
+  .modal-close:hover { color: var(--accent2); }
+
+  .modal-body { padding: 16px; }
+
+  .modal-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 6px;
+  }
+
+  .modal-info-row:last-child { border-bottom: none; }
+  .modal-info-label { color: var(--text2); }
+  .modal-info-value { color: var(--text); }
+
+  .modal-desc {
+    font-size: 6px;
+    color: var(--text2);
+    line-height: 2;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .buy-section {
+    margin-top: 16px;
+  }
+
+  .buy-title {
+    font-size: 7px;
+    color: var(--text2);
+    margin-bottom: 12px;
+  }
+
+  .buy-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 14px;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 8px;
+    cursor: pointer;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.1s;
+    letter-spacing: 1px;
+  }
+
+  .btn:active { transform: scale(0.97); }
+
+  .btn-card {
+    background: var(--accent2);
+    color: white;
+    border: 3px solid #ff8c00;
+    box-shadow: 0 4px 0 #8b3a00, inset 0 1px 0 rgba(255,255,255,0.2);
+  }
+
+  .btn-card:active { box-shadow: 0 2px 0 #8b3a00; transform: translateY(2px); }
+
+  .btn-stars {
+    background: var(--stars);
+    color: #1a1000;
+    border: 3px solid #b8960c;
+    box-shadow: 0 4px 0 #5a4800, inset 0 1px 0 rgba(255,255,255,0.3);
+  }
+
+  .btn-stars:active { box-shadow: 0 2px 0 #5a4800; transform: translateY(2px); }
+
+  .no-keys-badge {
+    font-size: 6px;
+    color: var(--accent2);
+    text-align: center;
+    padding: 8px;
+    border: 2px solid var(--accent2);
+    margin-top: 8px;
+  }
+
+  /* PIXEL DECORATIONS */
+  .pixel-deco {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+  }
+
+  .pixel-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--accent);
+  }
+
+  .pixel-dot:nth-child(2) { background: var(--accent3); }
+  .pixel-dot:nth-child(3) { background: var(--accent2); }
+
+  /* ABOUT PAGE */
+  .about-card {
+    background: var(--card);
+    padding: 16px;
+    margin-bottom: 12px;
+    border-left: 4px solid var(--accent);
+  }
+
+  .about-title {
+    font-size: 8px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .about-text {
+    font-size: 6px;
+    color: var(--text2);
+    line-height: 2.2;
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 16px;
+  }
+
+  .stat-item {
+    background: var(--bg3);
+    padding: 12px 8px;
+    text-align: center;
+  }
+
+  .stat-num {
+    font-size: 14px;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .stat-label {
+    font-size: 5px;
+    color: var(--text2);
+  }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--accent3); }
+
+  /* NOTIFICATION */
+  .notif {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--accent);
+    color: var(--bg);
+    padding: 10px 16px;
+    font-size: 7px;
+    z-index: 999;
+    display: none;
+    white-space: nowrap;
+    border: 2px solid #003322;
+    box-shadow: 4px 4px 0 #003322;
+  }
+  .notif.show { display: block; animation: fadeOut 2.5s forwards; }
+  @keyframes fadeOut {
+    0% { opacity: 1; }
+    70% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="notif" id="notif"></div>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-logo">🎮 PIXEL KAY</div>
+  <div class="header-sub">░ CHEAT SHOP ░ BEST PRICES ░</div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('shop')">🛒 МАГАЗИН</div>
+  <div class="tab" onclick="switchTab('about')">📋 О НАС</div>
+  <div class="tab" onclick="switchTab('faq')">❓ FAQ</div>
+</div>
+
+<!-- SHOP TAB -->
+<div id="tab-shop" class="content">
+  <div class="section-title">ВСЕ ЧИТЫ</div>
+
+  <div class="filters">
+    <button class="filter-btn active" onclick="filterGame('all', this)">ВСЕ</button>
+    <button class="filter-btn" onclick="filterGame('PUBG', this)">PUBG</button>
+    <button class="filter-btn" onclick="filterGame('Delta Force', this)">DELTA FORCE</button>
+    <button class="filter-btn" onclick="filterGame('Brawl Stars', this)">BRAWL STARS</button>
+  </div>
+
+  <div id="cheats-list">
+    <div class="loading">
+      <div class="pixel-spinner"></div>
+      <div>ЗАГРУЗКА...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ABOUT TAB -->
+<div id="tab-about" class="content" style="display:none">
+  <div class="section-title">О PIXEL KAY</div>
+  <div class="pixel-deco">
+    <div class="pixel-dot"></div>
+    <div class="pixel-dot"></div>
+    <div class="pixel-dot"></div>
+  </div>
+
+  <div class="about-card pixel-border">
+    <div class="about-title">🎮 КТО МЫ</div>
+    <div class="about-text">
+      PIXEL KAY — магазин читов<br>
+      для мобильных игр.<br><br>
+      Мы продаём только рабочие<br>
+      и проверенные читы.
+    </div>
+  </div>
+
+  <div class="about-card pixel-border-orange">
+    <div class="about-title">💳 ОПЛАТА</div>
+    <div class="about-text">
+      ▸ Monobank (UAH)<br>
+      ▸ Telegram Stars ⭐<br><br>
+      После оплаты отправь<br>
+      квитанцию боту.<br>
+      Ключ придёт за 15 минут.
+    </div>
+  </div>
+
+  <div class="about-card pixel-border-purple">
+    <div class="about-title">🛡 ГАРАНТИИ</div>
+    <div class="about-text">
+      ▸ Ключи проверены<br>
+      ▸ Поддержка 24/7<br>
+      ▸ Возврат если не работает
+    </div>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat-item pixel-border">
+      <span class="stat-num">100+</span>
+      <span class="stat-label">КЛИЕНТОВ</span>
+    </div>
+    <div class="stat-item pixel-border">
+      <span class="stat-num">3</span>
+      <span class="stat-label">ИГРЫ</span>
+    </div>
+    <div class="stat-item pixel-border-orange">
+      <span class="stat-num">15м</span>
+      <span class="stat-label">ВЫДАЧА</span>
+    </div>
+    <div class="stat-item pixel-border-purple">
+      <span class="stat-num">24/7</span>
+      <span class="stat-label">ПОДДЕРЖКА</span>
+    </div>
+  </div>
+</div>
+
+<!-- FAQ TAB -->
+<div id="tab-faq" class="content" style="display:none">
+  <div class="section-title">ЧАСТЫЕ ВОПРОСЫ</div>
+
+  <div class="about-card pixel-border">
+    <div class="about-title">❓ КАК КУПИТЬ?</div>
+    <div class="about-text">
+      1. Выбери чит в магазине<br>
+      2. Нажми "КУПИТЬ"<br>
+      3. Выбери способ оплаты<br>
+      4. Оплати и отправь квитанцию<br>
+      5. Получи ключ за 15 минут
+    </div>
+  </div>
+
+  <div class="about-card pixel-border-orange">
+    <div class="about-title">⭐ ЧТО ТАКОЕ STARS?</div>
+    <div class="about-text">
+      Telegram Stars — внутренняя<br>
+      валюта Telegram.<br>
+      Купить можно в настройках TG.<br>
+      Оплата мгновенная!
+    </div>
+  </div>
+
+  <div class="about-card pixel-border-purple">
+    <div class="about-title">🔑 НЕ РАБОТАЕТ КЛЮЧ?</div>
+    <div class="about-text">
+      Напиши нам в поддержку.<br>
+      Заменим ключ бесплатно<br>
+      в течение 24 часов.
+    </div>
+  </div>
+
+  <div class="about-card pixel-border">
+    <div class="about-title">📱 КАКИЕ УСТРОЙСТВА?</div>
+    <div class="about-text">
+      ▸ Android<br>
+      ▸ iOS<br>
+      ▸ PC<br><br>
+      Устройство указано<br>
+      в карточке каждого чита.
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modal" onclick="closeModal(event)">
+  <div class="modal pixel-border" id="modal-content">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">ЧИТ</div>
+      <button class="modal-close" onclick="closeModalDirect()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
+
+let allCheats = [];
+let currentFilter = 'all';
+let currentCheat = null;
+
+async function loadCheats() {
+  try {
+    const res = await fetch('/api/cheats');
+    allCheats = await res.json();
+    renderCheats(allCheats);
+  } catch(e) {
+    document.getElementById('cheats-list').innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">⚠️</div>
+        ОШИБКА ЗАГРУЗКИ<br><br>
+        Попробуй позже
+      </div>`;
+  }
+}
+
+function renderCheats(cheats) {
+  const list = document.getElementById('cheats-list');
+  if (!cheats.length) {
+    list.innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">📦</div>
+        ЧИТОВ НЕТ<br><br>
+        СКОРО ДОБАВИМ
+      </div>`;
+    return;
+  }
+  list.innerHTML = cheats.map(c => `
+    <div class="cheat-card pixel-border" onclick="openCheat(${c.id})">
+      <div class="card-header">
+        <div class="card-name">${c.name}</div>
+        <div class="card-game-badge">${c.game.toUpperCase()}</div>
+      </div>
+      <div class="card-device">📱 ${c.device}</div>
+      <div class="card-desc">${c.description}</div>
+      <div class="card-prices">
+        <div class="price-tag price-uah">💳 ${c.price_rub} UAH</div>
+        <div class="price-tag price-stars">⭐ ${c.price_stars} STARS</div>
+      </div>
+      <div class="card-arrow">▸</div>
+    </div>
+  `).join('');
+}
+
+function filterGame(game, btn) {
+  currentFilter = game;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (game === 'all') {
+    renderCheats(allCheats);
+  } else {
+    renderCheats(allCheats.filter(c =>
+      c.game.toLowerCase().includes(game.toLowerCase())
+    ));
+  }
+}
+
+async function openCheat(id) {
+  currentCheat = allCheats.find(c => c.id === id);
+  if (!currentCheat) return;
+
+  let keysAvailable = true;
+  try {
+    const res = await fetch(`/api/keys_count/${id}`);
+    const data = await res.json();
+    keysAvailable = data.available;
+  } catch(e) {}
+
+  document.getElementById('modal-title').textContent = currentCheat.name;
+  document.getElementById('modal-body').innerHTML = `
+    <div class="modal-info-row">
+      <span class="modal-info-label">🎮 ИГРА</span>
+      <span class="modal-info-value">${currentCheat.game}</span>
+    </div>
+    <div class="modal-info-row">
+      <span class="modal-info-label">📱 УСТРОЙСТВО</span>
+      <span class="modal-info-value">${currentCheat.device}</span>
+    </div>
+    <div class="modal-info-row">
+      <span class="modal-info-label">💳 ЦЕНА UAH</span>
+      <span class="modal-info-value" style="color:var(--accent2)">${currentCheat.price_rub} UAH</span>
+    </div>
+    <div class="modal-info-row">
+      <span class="modal-info-label">⭐ ЦЕНА STARS</span>
+      <span class="modal-info-value" style="color:var(--stars)">${currentCheat.price_stars} ⭐</span>
+    </div>
+    <div class="modal-desc">${currentCheat.description}</div>
+    <div class="buy-section">
+      <div class="buy-title">▸ ВЫБЕРИ СПОСОБ ОПЛАТЫ:</div>
+      <div class="buy-buttons">
+        <button class="btn btn-card" onclick="buyCard()">
+          💳 MONOBANK — ${currentCheat.price_rub} UAH
+        </button>
+        <button class="btn btn-stars" onclick="buyStars()">
+          ⭐ TELEGRAM STARS — ${currentCheat.price_stars}
+        </button>
+      </div>
+      ${!keysAvailable ? '<div class="no-keys-badge">⚠️ МАЛО КЛЮЧЕЙ — ВОЗМОЖНА ЗАДЕРЖКА</div>' : ''}
+    </div>
+  `;
+
+  document.getElementById('modal').classList.add('open');
+  tg.BackButton.show();
+  tg.BackButton.onClick(closeModalDirect);
+}
+
+function closeModal(e) {
+  if (e.target === document.getElementById('modal')) closeModalDirect();
+}
+
+function closeModalDirect() {
+  document.getElementById('modal').classList.remove('open');
+  tg.BackButton.hide();
+  currentCheat = null;
+}
+
+function buyCard() {
+  if (!currentCheat) return;
+  tg.sendData(JSON.stringify({
+    cheat_id: currentCheat.id,
+    payment_type: 'card'
+  }));
+  closeModalDirect();
+}
+
+function buyStars() {
+  if (!currentCheat) return;
+  tg.sendData(JSON.stringify({
+    cheat_id: currentCheat.id,
+    payment_type: 'stars'
+  }));
+  closeModalDirect();
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    const tabs = ['shop', 'about', 'faq'];
+    t.classList.toggle('active', tabs[i] === tab);
+  });
+  document.getElementById('tab-shop').style.display = tab === 'shop' ? 'block' : 'none';
+  document.getElementById('tab-about').style.display = tab === 'about' ? 'block' : 'none';
+  document.getElementById('tab-faq').style.display = tab === 'faq' ? 'block' : 'none';
+}
+
+function showNotif(text) {
+  const n = document.getElementById('notif');
+  n.textContent = text;
+  n.classList.remove('show');
+  void n.offsetWidth;
+  n.classList.add('show');
+}
+
+tg.onEvent('themeChanged', () => {
+  document.body.style.background = tg.themeParams.bg_color || '#0a0a0f';
+});
+
+loadCheats();
+</script>
+</body>
+</html>
