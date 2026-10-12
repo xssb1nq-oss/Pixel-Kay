@@ -85,22 +85,59 @@ async def delete_cheat(cheat_id):
     finally: await conn.close()
 
 async def add_key(cheat_id, key_value, duration_days=30):
+    return await add_keys(cheat_id, [key_value], duration_days)
+
+async def add_keys(cheat_id, key_values, duration_days=30):
+    unique_values = {}
+    for value in key_values:
+        clean = str(value).strip()
+        if clean:
+            unique_values.setdefault(clean.casefold(), clean)
+    values = list(unique_values.values())
+    if not values:
+        return 0
     conn = await get_db()
-    try: await conn.execute('INSERT INTO keys (cheat_id,key_value,duration_days) VALUES ($1,$2,$3)', int(cheat_id), key_value.strip(), int(duration_days))
-    finally: await conn.close()
+    try:
+        async with conn.transaction():
+            # Serialize inserts for identical credentials without deleting existing rows.
+            for value in sorted(values, key=str.casefold):
+                await conn.fetchval('SELECT pg_advisory_xact_lock(hashtext(LOWER($1)))', value)
+            existing = await conn.fetch(
+                'SELECT LOWER(key_value) AS normalized FROM keys WHERE LOWER(key_value)=ANY($1::TEXT[])',
+                [value.casefold() for value in values])
+            present = {row['normalized'] for row in existing}
+            fresh = [(int(cheat_id), value, int(duration_days))
+                     for value in values if value.casefold() not in present]
+            if fresh:
+                await conn.executemany(
+                    'INSERT INTO keys (cheat_id,key_value,duration_days) VALUES ($1,$2,$3)',
+                    fresh)
+        return len(fresh)
+    finally:
+        await conn.close()
 
 async def get_free_key(cheat_id, duration_days=None):
     conn = await get_db()
     try:
         if duration_days is None:
-            return await conn.fetchrow('SELECT * FROM keys WHERE cheat_id=$1 AND is_used=FALSE ORDER BY id LIMIT 1', int(cheat_id))
-        return await conn.fetchrow('SELECT * FROM keys WHERE cheat_id=$1 AND duration_days=$2 AND is_used=FALSE ORDER BY id LIMIT 1', int(cheat_id), int(duration_days))
+            return await conn.fetchrow('''SELECT k.* FROM keys k WHERE k.cheat_id=$1 AND k.is_used=FALSE
+                AND NOT EXISTS (SELECT 1 FROM keys prior WHERE LOWER(prior.key_value)=LOWER(k.key_value) AND prior.id<k.id)
+                AND NOT EXISTS (SELECT 1 FROM keys used WHERE LOWER(used.key_value)=LOWER(k.key_value) AND used.is_used=TRUE)
+                ORDER BY k.id LIMIT 1''', int(cheat_id))
+        return await conn.fetchrow('''SELECT k.* FROM keys k WHERE k.cheat_id=$1 AND k.duration_days=$2 AND k.is_used=FALSE
+            AND NOT EXISTS (SELECT 1 FROM keys prior WHERE LOWER(prior.key_value)=LOWER(k.key_value) AND prior.id<k.id)
+            AND NOT EXISTS (SELECT 1 FROM keys used WHERE LOWER(used.key_value)=LOWER(k.key_value) AND used.is_used=TRUE)
+            ORDER BY k.id LIMIT 1''', int(cheat_id), int(duration_days))
     finally: await conn.close()
 
 async def keys_count(cheat_id):
     conn = await get_db()
     try:
-        rows = await conn.fetch('SELECT duration_days, COUNT(*) AS amount FROM keys WHERE cheat_id=$1 AND is_used=FALSE GROUP BY duration_days', int(cheat_id))
+        rows = await conn.fetch('''SELECT k.duration_days, COUNT(*) AS amount FROM keys k
+            WHERE k.cheat_id=$1 AND k.is_used=FALSE
+              AND NOT EXISTS (SELECT 1 FROM keys prior WHERE LOWER(prior.key_value)=LOWER(k.key_value) AND prior.id<k.id)
+              AND NOT EXISTS (SELECT 1 FROM keys used WHERE LOWER(used.key_value)=LOWER(k.key_value) AND used.is_used=TRUE)
+            GROUP BY k.duration_days''', int(cheat_id))
         return {int(r['duration_days']):int(r['amount']) for r in rows}
     finally: await conn.close()
 
@@ -138,9 +175,25 @@ async def approve_order(order_id, charge_id=None):
             if not order: return {'ok':False,'reason':'not_found'}
             if order['status'] == 'confirmed': return {'ok':True,'already':True,'order':dict(order),'key':order['key_given']}
             if order['status'] != 'pending': return {'ok':False,'reason':'not_pending'}
-            key = await conn.fetchrow('''SELECT * FROM keys WHERE cheat_id=$1 AND duration_days=$2 AND is_used=FALSE
-                ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED''', order['cheat_id'], order['duration_days'])
-            if not key: return {'ok':False,'reason':'no_key'}
+            key = None
+            while True:
+                candidate = await conn.fetchrow('''SELECT * FROM keys k
+                    WHERE k.cheat_id=$1 AND k.duration_days=$2 AND k.is_used=FALSE
+                      AND NOT EXISTS (SELECT 1 FROM keys prior
+                          WHERE LOWER(prior.key_value)=LOWER(k.key_value) AND prior.id<k.id)
+                      AND NOT EXISTS (SELECT 1 FROM keys used
+                          WHERE LOWER(used.key_value)=LOWER(k.key_value) AND used.is_used=TRUE)
+                    ORDER BY k.id LIMIT 1 FOR UPDATE OF k SKIP LOCKED''',
+                    order['cheat_id'], order['duration_days'])
+                if not candidate:
+                    return {'ok':False,'reason':'no_key'}
+                await conn.fetchval('SELECT pg_advisory_xact_lock(hashtext(LOWER($1)))', candidate['key_value'])
+                already_used = await conn.fetchval(
+                    'SELECT EXISTS(SELECT 1 FROM keys WHERE LOWER(key_value)=LOWER($1) AND is_used=TRUE)',
+                    candidate['key_value'])
+                if not already_used:
+                    key = candidate
+                    break
             row = await conn.fetchrow('''UPDATE orders SET status='confirmed',key_given=$2,confirmed_at=NOW(),
                 expires_at=NOW() + ($3 * INTERVAL '1 day'),telegram_payment_charge_id=COALESCE($4,telegram_payment_charge_id)
                 WHERE id=$1 RETURNING *''', int(order_id), key['key_value'], int(order['duration_days']), charge_id)
@@ -149,9 +202,29 @@ async def approve_order(order_id, charge_id=None):
     finally: await conn.close()
 
 async def confirm_order(order_id, key_value):
+    """Legacy confirmation path; reserve a credential only if it is still unused."""
     conn = await get_db()
     try:
-        await conn.execute("UPDATE orders SET status='confirmed',key_given=$1,confirmed_at=NOW(),expires_at=NOW()+(duration_days*INTERVAL '1 day') WHERE id=$2 AND status='pending'", key_value, int(order_id))
+        async with conn.transaction():
+            order = await conn.fetchrow('SELECT * FROM orders WHERE id=$1 FOR UPDATE', int(order_id))
+            if not order or order['status'] != 'pending':
+                return False
+            key = await conn.fetchrow('''SELECT k.id FROM keys k WHERE k.cheat_id=$1 AND k.duration_days=$2
+                AND k.key_value=$3 AND k.is_used=FALSE
+                AND NOT EXISTS (SELECT 1 FROM keys prior WHERE LOWER(prior.key_value)=LOWER(k.key_value) AND prior.id<k.id)
+                ORDER BY k.id LIMIT 1 FOR UPDATE OF k SKIP LOCKED''',
+                order['cheat_id'], order['duration_days'], key_value)
+            if not key:
+                return False
+            await conn.fetchval('SELECT pg_advisory_xact_lock(hashtext(LOWER($1)))', key_value)
+            used = await conn.fetchval(
+                'SELECT EXISTS(SELECT 1 FROM keys WHERE LOWER(key_value)=LOWER($1) AND is_used=TRUE)',
+                key_value)
+            if used:
+                return False
+            await conn.execute("UPDATE orders SET status='confirmed',key_given=$1,confirmed_at=NOW(),expires_at=NOW()+(duration_days*INTERVAL '1 day') WHERE id=$2 AND status='pending'", key_value, int(order_id))
+            await conn.execute('UPDATE keys SET is_used=TRUE WHERE id=$1', key['id'])
+            return True
     finally: await conn.close()
 
 async def reject_order(order_id):
