@@ -1,5 +1,7 @@
 import os
 import asyncio
+import threading
+import logging
 from flask import Flask, jsonify, request
 from dotenv import load_dotenv
 import database as db
@@ -65,6 +67,12 @@ def keys_count(cheat_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def run_bot():
+    import bot
+    asyncio.run(bot.main())
+
 if __name__ == "__main__":
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
