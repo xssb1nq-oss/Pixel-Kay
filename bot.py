@@ -1,8 +1,6 @@
 import asyncio
 import json
 import os
-import html
-from datetime import datetime
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
@@ -53,12 +51,6 @@ def user_label(user):
     return '@'+user.username if user.username else f'ID {user.id} (без username)'
 
 
-def date_label(value):
-    if not value: return '—'
-    if isinstance(value,str): return value
-    return value.strftime('%d.%m.%Y %H:%M UTC')
-
-
 @dp.message(Command('start'))
 async def start(message: Message):
     await db.init_db()
@@ -73,14 +65,13 @@ async def admin(message: Message):
     await message.answer('👑 Панель управления находится в мини-приложении.',reply_markup=open_app_keyboard())
 
 
-async def notify_key(order, key_value):
-    c=await db.get_cheat(order['cheat_id'])
-    product_name = html.escape(c['name'] if c else 'Товар')
-    safe_key = html.escape(str(key_value))
-    await bot.send_message(order['user_id'],
-        f"🎉 <b>Оплата подтверждена!</b>\nЗаказ #{order['id']}\n{product_name} · {order['duration_days']} дн.\n\n"
-        f"🔑 Ваш ключ:\n<code>{safe_key}</code>\n\nСрок действия начинается с момента подтверждения. Действует до: {date_label(order.get('expires_at'))}",
-        parse_mode='HTML')
+async def notify_key(order, key_value=None):
+    # Keys are shown only in the in-app profile; send a short status notice in chat.
+    await bot.send_message(
+        order['user_id'],
+        f"✅ Оплата заказа #{order['id']} прошла проверку.\n"
+        "Обнови страницу мини-приложения PIXEL KAY и посмотри результат в профиле."
+    )
 
 
 async def approve_and_notify(order_id):
@@ -137,7 +128,6 @@ async def chat_receipt(message: Message,state: FSMContext):
              f'📦 {order["name"] if order else "Товар"} · {order["duration_days"] if order else 30} дн.\n'
              f'💵 {order["price_rub"] if order else "?"} UAH\n📝 Комментарий к переводу: {username}')
     await bot.send_photo(ADMIN_ID,file_id,caption=caption,reply_markup=admin_order_keyboard(order_id))
-    await message.answer(f'✅ Квитанция заказа #{order_id} отправлена на проверку. Ключ начнёт действовать после подтверждения оплаты.')
     await state.clear()
 
 
@@ -160,13 +150,13 @@ async def confirm_callback(callback: CallbackQuery):
     if result.get('already'):
         await callback.answer('Заказ уже подтверждён'); return
     try:
-        caption=(callback.message.caption or '')+'\n\n✅ ПОДТВЕРЖДЕНО · ключ отправлен покупателю'
+        caption=(callback.message.caption or '')+'\n\n✅ ПОДТВЕРЖДЕНО · ключ добавлен в профиль покупателя'
         if callback.message.photo:
             await callback.message.edit_caption(caption=caption,reply_markup=None)
         else:
-            await callback.message.edit_text((callback.message.text or '')+'\n\n✅ ПОДТВЕРЖДЕНО · ключ отправлен покупателю',reply_markup=None)
+            await callback.message.edit_text((callback.message.text or '')+'\n\n✅ ПОДТВЕРЖДЕНО · ключ добавлен в профиль покупателя',reply_markup=None)
     except Exception: pass
-    await callback.answer('Оплата подтверждена, ключ выдан')
+    await callback.answer('Оплата подтверждена, ключ в профиле покупателя')
 
 
 @dp.callback_query(F.data.startswith('reject_'))
