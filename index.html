@@ -73,7 +73,8 @@ body{color:var(--text);font-family:'Press Start 2P',monospace;font-size:8px;min-
 .loader-dot.on{background:var(--accent);box-shadow:0 0 8px var(--accent)}
 
 /* HEADER */
-.header{background:rgba(16,16,27,.95);backdrop-filter:blur(8px);padding:14px 12px 12px;text-align:center;border-bottom:3px solid var(--accent);position:sticky;top:0;z-index:100;transition:border-color .5s}
+.header{background:rgba(16,16,27,.95);backdrop-filter:blur(8px);padding:14px 12px 12px;text-align:center;border-bottom:3px solid var(--accent);position:relative;transition:border-color .5s}
+.top-wrap{position:sticky;top:0;z-index:100}
 .header-logo{font-size:15px;color:var(--accent);letter-spacing:2px;animation:glow 2s ease-in-out infinite alternate;transition:color .5s,text-shadow .5s}
 @keyframes glow{from{text-shadow:0 0 8px var(--accent),3px 3px 0 rgba(0,0,0,.5)}to{text-shadow:0 0 24px var(--accent),0 0 48px var(--accent),3px 3px 0 rgba(0,0,0,.5)}}
 .header-sub{color:var(--text2);font-size:6px;margin-top:7px;letter-spacing:3px}
@@ -83,11 +84,11 @@ body{color:var(--text);font-family:'Press Start 2P',monospace;font-size:8px;min-
 .hdr-btn:hover{border-color:var(--accent)}
 
 /* TABS */
-.tabs{display:flex;position:sticky;top:73px;z-index:99;background:rgba(16,16,27,.95);border-bottom:2px solid var(--border);overflow-x:auto;scrollbar-width:none;transition:border-color .5s}
+.tabs{display:flex;position:relative;background:rgba(16,16,27,.95);border-bottom:2px solid var(--border);overflow-x:auto;scrollbar-width:none;transition:border-color .5s}
 .tabs::-webkit-scrollbar{display:none}
-.tab{flex-shrink:0;min-width:70px;padding:12px 10px;font-size:6px;color:var(--text2);cursor:pointer;text-align:center;transition:color .2s;white-space:nowrap;position:relative}
+.tab{flex:1 0 auto;min-width:70px;padding:13px 10px;font-size:6px;color:var(--text2);cursor:pointer;text-align:center;transition:color .2s;white-space:nowrap;position:relative}
 .tab.active{color:var(--accent)}
-.tab-indicator{position:absolute;bottom:-2px;height:3px;background:var(--accent);box-shadow:0 0 10px var(--accent);transition:left .35s cubic-bezier(.68,-.4,.27,1.4),width .35s,background .5s}
+.tab-indicator{width:0;left:0;position:absolute;bottom:-2px;height:3px;background:var(--accent);box-shadow:0 0 10px var(--accent);transition:left .35s cubic-bezier(.68,-.4,.27,1.4),width .35s,background .5s}
 /* game tab close btn */
 .tab-close{display:inline-block;margin-left:5px;font-size:8px;opacity:.6;vertical-align:middle}
 .tab-close:hover{opacity:1;color:var(--accent2)}
@@ -221,6 +222,27 @@ input[type=range]{width:100%;accent-color:var(--accent);height:6px;cursor:pointe
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01s!important;transition-duration:.01s!important}}
 
 body{padding-bottom:68px}
+/* SHOP TABS (Главная + названия читов) */
+.shop-tabs{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;position:sticky;top:0;z-index:90;margin:-12px -12px 14px;padding:12px;background:var(--bg);border-bottom:2px solid var(--border)}
+.shop-tabs::-webkit-scrollbar{display:none}
+.shop-tab{flex-shrink:0;padding:10px 12px;font-size:7px;color:var(--text2);background:var(--bg2);border:2px solid var(--border);box-shadow:0 3px 0 rgba(0,0,0,.55);cursor:pointer;white-space:nowrap;transition:transform .12s,box-shadow .12s,background .2s,color .2s}
+.shop-tab:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,.55)}
+.shop-tab.active{color:var(--bg);background:var(--accent);border-color:var(--accent);box-shadow:0 3px 0 rgba(0,0,0,.55),0 0 14px var(--accent)}
+.shop-tab .tab-close{opacity:.55;margin-left:7px}
+.shop-add{flex-shrink:0;width:40px;font-family:inherit;font-size:12px;color:var(--accent);background:transparent;border:2px dashed var(--accent);cursor:pointer;transition:background .2s}
+.shop-add:active{background:var(--bg3)}
+.shop-view{display:none}
+.shop-view.active{display:block;animation:pageIn .35s cubic-bezier(.2,.8,.2,1)}
+/* DESIGN POLISH */
+.cheat-card{box-shadow:5px 5px 0 rgba(0,0,0,.55),0 0 0 1px var(--bg)}
+.card-name{text-shadow:0 0 8px rgba(0,255,136,.25)}
+.price-tag{box-shadow:2px 2px 0 rgba(0,0,0,.5)}
+.news-card,.about-card,.inventory-card,.admin-row{box-shadow:3px 3px 0 rgba(0,0,0,.45)}
+.mini-product-image{image-rendering:pixelated;box-shadow:3px 3px 0 rgba(0,0,0,.5)}
+.section-title{text-shadow:0 0 8px rgba(0,255,136,.2)}
+.duration-choice small{color:var(--accent2)}
+.key-hint{font-size:6px;color:var(--text2);line-height:2;margin:8px 0}
+
 .bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:150;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));background:rgba(16,16,27,.96);border-top:2px solid var(--accent);backdrop-filter:blur(8px);transition:border-color .5s}
 .bottom-nav button{font-family:inherit;font-size:7px;letter-spacing:.5px;color:var(--text2);background:var(--bg2);border:2px solid var(--border);padding:10px 6px;cursor:pointer;transition:all .2s}
 .bottom-nav button.active{color:var(--bg);background:var(--accent);border-color:var(--accent);box-shadow:0 0 12px rgba(0,255,136,.3)}
@@ -304,6 +326,7 @@ body{padding-bottom:68px}
 <div class="notif" id="notif"></div>
 
 <div class="app">
+  <div class="top-wrap">
   <div class="header">
     <div class="header-logo">🎮 PIXEL KEY</div>
     <div class="header-sub">░ CHEAT SHOP ░ BEST PRICES ░</div>
@@ -313,25 +336,29 @@ body{padding-bottom:68px}
     </div>
   </div>
 
-  <!-- TABS: home + dynamic game tabs + about/faq/settings -->
+  <!-- TOP TABS: только О НАС / FAQ / НАСТРОЙКИ -->
   <div class="tabs" id="tabs">
-    <div class="tab active" data-tab="home">🏠 ГЛАВНАЯ</div>
-    <!-- game tabs inserted here dynamically -->
     <div class="tab" data-tab="about">📋 О НАС</div>
     <div class="tab" data-tab="faq">❓ FAQ</div>
     <div class="tab" data-tab="settings">⚙️ НАСТРОЙКИ</div>
-    <button class="tab-add-btn" id="add-game-tab-btn" title="Добавить вкладку игры">＋</button>
     <div class="tab-indicator" id="tab-indicator"></div>
+  </div>
   </div>
 
   <div class="pages" id="pages-container">
-    <!-- HOME -->
+    <!-- HOME / SHOP: вкладки Главная + читы -->
     <div id="page-home" class="page active">
-      <div class="section-title">🏠 ГЛАВНАЯ <span class="count" id="news-count"></span></div>
-      <div id="home-news-list"><div class="skeleton"></div><div class="skeleton"></div></div>
+      <div class="shop-tabs" id="shop-tabs">
+        <div class="shop-tab active" data-shop="main">🏠 ГЛАВНАЯ</div>
+        <button class="shop-add" id="add-game-tab-btn" title="Добавить вкладку">＋</button>
+      </div>
+      <div id="shop-views">
+        <div class="shop-view active" id="view-main">
+          <div class="section-title">📰 НОВОСТИ <span class="count" id="news-count"></span></div>
+          <div id="home-news-list"><div class="skeleton"></div><div class="skeleton"></div></div>
+        </div>
+      </div>
     </div>
-
-    <!-- dynamic game pages injected here -->
 
     <!-- О НАС -->
     <div id="page-about" class="page">
@@ -520,74 +547,65 @@ const PALETTE=['#8b5cf6','#ff6b00','#00b86b','#ff2bd6','#0ea5e9','#e11d48','#ca8
 function gameColor(name){let h=0;for(const ch of norm(name))h=(h*31+ch.charCodeAt(0))>>>0;return PALETTE[h%PALETTE.length];}
 
 async function loadCheats(){
-  try{const res=await fetch('/api/cheats');const data=await res.json();if(!Array.isArray(data))throw new Error(data.error||'bad data');allCheats=data;buildGameTabs();countUp('stat-cheats',allCheats.length);}
+  try{const res=await fetch('/api/cheats');const data=await res.json();if(!Array.isArray(data))throw new Error(data.error||'bad data');allCheats=data;
+    if(!localStorage.getItem('pk_tabs_init')&&allCheats.length){catalogGames().forEach(g=>{if(!hasGameTab(g))S.gameTabs.push({id:slugify(g),label:g});});S.save();localStorage.setItem('pk_tabs_init','1');}
+    buildGameTabs();countUp('stat-cheats',allCheats.length);countUp('stat-games',catalogGames().length);}
   catch(e){Sound.error();}
   finally{loadHomeNews();}
 }
 
-/* =========== DYNAMIC GAME TABS =========== */
-// S.gameTabs = [{id:'game_oxide', label:'Oxide'}, ...]
-const FIXED_TABS_BEFORE=['home'];
-const FIXED_TABS_AFTER=['about','faq','settings'];
+/* =========== SHOP TABS =========== */
+let shopTab='main';
+function slugify(name){let h=0;for(const ch of norm(name))h=(h*31+ch.charCodeAt(0))>>>0;return 'game_'+h.toString(36);}
+function catalogGames(){const m=new Map();allCheats.forEach(c=>{const g=String(c.game||c.category||'').trim();if(g&&!m.has(norm(g)))m.set(norm(g),g);});return [...m.values()];}
+function hasGameTab(n){return S.gameTabs.some(g=>norm(g.label)===norm(n));}
+function addGameTab(name){name=String(name||'').trim();if(!name)return null;if(hasGameTab(name)){showNotif('⚠️ ТАКАЯ ВКЛАДКА УЖЕ ЕСТЬ');return null;}const t={id:slugify(name),label:name};S.gameTabs.push(t);S.save();return t;}
+function syncSticky(){const w=document.querySelector('.top-wrap'),b=document.getElementById('shop-tabs');if(w&&b)b.style.top=w.offsetHeight+'px';}
 
-function slugify(name){return 'game_'+name.toLowerCase().replace(/[^a-z0-9а-яё]/gi,'_').replace(/_+/g,'_').replace(/^_|_$/g,'')+'_'+Date.now();}
+function applyShop(){
+  document.querySelectorAll('#shop-tabs .shop-tab').forEach(t=>t.classList.toggle('active',t.dataset.shop===shopTab));
+  document.querySelectorAll('#shop-views .shop-view').forEach(v=>v.classList.toggle('active',v.id==='view-'+shopTab));
+}
+function switchShop(id){
+  if(id===shopTab)return;
+  Sound.tab();haptic();shopTab=id;applyShop();
+  const t=document.querySelector(`#shop-tabs .shop-tab[data-shop="${id}"]`);
+  if(t)t.scrollIntoView({inline:'center',block:'nearest',behavior:'smooth'});
+  window.scrollTo({top:0,behavior:'smooth'});
+}
 
 function buildGameTabs(){
-  // Remove old dynamic tab elements
-  document.querySelectorAll('.tab[data-tab^="game_"],.page[id^="page-game_"]').forEach(el=>el.remove());
-
-  const tabsEl=document.getElementById('tabs');
-  const addBtn=document.getElementById('add-game-tab-btn');
-  const pagesContainer=document.getElementById('pages-container');
-  const beforeAbout=document.querySelector('.tab[data-tab="about"]');
-
+  const bar=document.getElementById('shop-tabs'),views=document.getElementById('shop-views'),addBtn=document.getElementById('add-game-tab-btn');
+  bar.querySelectorAll('.shop-tab[data-shop^="game_"]').forEach(e=>e.remove());
+  views.querySelectorAll('.shop-view[id^="view-game_"]').forEach(e=>e.remove());
+  if(shopTab!=='main'&&!S.gameTabs.some(g=>g.id===shopTab))shopTab='main';
   for(const gt of S.gameTabs){
-    // TAB
-    const tabEl=document.createElement('div');
-    tabEl.className='tab';tabEl.dataset.tab=gt.id;
-    tabEl.innerHTML=`${esc(gt.label)}<span class="tab-close" data-close-tab="${esc(gt.id)}" title="Удалить вкладку">✕</span>`;
-    tabsEl.insertBefore(tabEl,beforeAbout);
-
-    // PAGE
-    const pageEl=document.createElement('div');
-    pageEl.id='page-'+gt.id;pageEl.className='page';
-    pageEl.innerHTML=`<div class="section-title">🎮 ${esc(gt.label)} <span class="count" id="count-${esc(gt.id)}"></span></div>
-<input class="search" id="search-${esc(gt.id)}" placeholder="🔍 ПОИСК ЧИТА..." autocomplete="off">
+    const t=document.createElement('div');t.className='shop-tab';t.dataset.shop=gt.id;
+    t.innerHTML=`${esc(gt.label)}<span class="tab-close" data-close-tab="${esc(gt.id)}" title="Удалить вкладку">✕</span>`;
+    bar.insertBefore(t,addBtn);
+    const v=document.createElement('div');v.className='shop-view';v.id='view-'+gt.id;
+    v.innerHTML=`<div class="section-title">🎮 ${esc(gt.label)} <span class="count" id="count-${esc(gt.id)}"></span></div>
+<input class="search" placeholder="🔍 ПОИСК ЧИТА..." autocomplete="off">
 <div id="cheats-${esc(gt.id)}"><div class="skeleton"></div><div class="skeleton"></div></div>`;
-    pagesContainer.insertBefore(pageEl,document.getElementById('page-about'));
-
-    // search wiring
-    const searchInput=pageEl.querySelector('input.search');
-    let stimer;
-    searchInput.addEventListener('input',e=>{clearTimeout(stimer);Sound.tick();stimer=setTimeout(()=>{renderGameCheats(gt.id,gt.label,e.target.value);},180);});
+    views.appendChild(v);
+    let st;v.querySelector('input.search').addEventListener('input',e=>{clearTimeout(st);Sound.tick();st=setTimeout(()=>renderGameCheats(gt.id,gt.label,e.target.value),180);});
   }
-
-  // Close tab buttons
-  tabsEl.querySelectorAll('[data-close-tab]').forEach(btn=>{
-    btn.onclick=(e)=>{e.stopPropagation();const tabId=btn.dataset.closeTab;removeGameTab(tabId);};
+  bar.querySelectorAll('.shop-tab').forEach(t=>t.onclick=e=>{
+    const c=e.target.closest('[data-close-tab]');
+    if(c){e.stopPropagation();removeGameTab(c.dataset.closeTab);return;}
+    switchShop(t.dataset.shop);
   });
-
-  // Tab click
-  tabsEl.querySelectorAll('.tab').forEach(t=>t.onclick=(e)=>{if(e.target.dataset.closeTab)return;switchTab(t.dataset.tab);});
-
-  // Render cheats for each game tab
-  for(const gt of S.gameTabs) renderGameCheats(gt.id,gt.label,'');
-
-  updateTabOrder();
+  for(const gt of S.gameTabs)renderGameCheats(gt.id,gt.label,'');
+  applyShop();
 }
 
 function renderGameCheats(tabId,gameName,search){
-  const list=document.getElementById('cheats-'+tabId);
-  const countEl=document.getElementById('count-'+tabId);
+  const list=document.getElementById('cheats-'+tabId),countEl=document.getElementById('count-'+tabId);
   if(!list)return;
   const q=norm(search);
-  const cheats=allCheats.filter(c=>{
-    const matchGame=norm(c.game)===norm(gameName)||norm(c.category)===norm(gameName);
-    const matchSearch=!q||norm(c.name).includes(q)||norm(c.description).includes(q);
-    return matchGame&&matchSearch;
-  });
+  const cheats=allCheats.filter(c=>(norm(c.game)===norm(gameName)||norm(c.category)===norm(gameName))&&(!q||norm(c.name).includes(q)||norm(c.description).includes(q)));
   if(countEl)countEl.textContent=cheats.length+' ШТ';
-  if(!cheats.length){list.innerHTML=`<div class="empty"><div class="empty-icon">📦</div>${q?'НИЧЕГО НЕ НАЙДЕНО':'ЧИТОВ НЕТ'}<br><br>${q?'Попробуй другой запрос':'Добавь товары через Admin Panel'}</div>`;return;}
+  if(!cheats.length){list.innerHTML=`<div class="empty"><div class="empty-icon">📦</div>${q?'НИЧЕГО НЕ НАЙДЕНО':'ЧИТОВ НЕТ'}<br><br>${q?'Попробуй другой запрос':'Скоро добавим!'}</div>`;return;}
   list.innerHTML=cheats.map((c,i)=>`
 <div class="cheat-card" data-id="${Number(c.id)}" style="animation-delay:${Math.min(i,10)*.07}s">
 ${c.image_url?`<img class="mini-product-image" src="${esc(c.image_url)}" alt="${esc(c.name)}">`:''}
@@ -601,21 +619,25 @@ ${c.image_url?`<img class="mini-product-image" src="${esc(c.image_url)}" alt="${
 }
 
 function removeGameTab(tabId){
-  const idx=S.gameTabs.findIndex(g=>g.id===tabId);
-  if(idx===-1)return;
-  S.gameTabs.splice(idx,1);S.save();
-  if(currentTab===tabId)currentTab='home';
-  buildGameTabs();
-  switchTab(currentTab);
+  const g=S.gameTabs.find(x=>x.id===tabId);if(!g)return;
+  if(!confirm('Удалить вкладку «'+g.label+'»?'))return;
+  S.gameTabs=S.gameTabs.filter(x=>x.id!==tabId);S.save();
+  if(shopTab===tabId)shopTab='main';
+  buildGameTabs();Sound.close();
 }
 
 document.getElementById('add-game-tab-btn').onclick=()=>{
-  const name=prompt('Введи название игры (например: Oxide):');
-  if(!name||!name.trim())return;
-  const id=slugify(name.trim());
-  S.gameTabs.push({id,label:name.trim()});S.save();
-  buildGameTabs();
-  showNotif('✅ ВКЛАДКА ДОБАВЛЕНА: '+name.trim().toUpperCase());
+  Sound.click();haptic();
+  const free=catalogGames().filter(g=>!hasGameTab(g));
+  document.getElementById('modal-title').textContent='＋ НОВАЯ ВКЛАДКА';
+  const body=document.getElementById('modal-body');
+  body.innerHTML=`${free.length?`<div class="buy-title">▸ ЧИТЫ ИЗ КАТАЛОГА:</div><div class="duration-choice-grid" style="grid-template-columns:1fr 1fr">${free.map(g=>`<button type="button" class="duration-choice preset" data-add-game="${esc(g)}">${esc(g)}</button>`).join('')}</div>`:'<div class="key-hint">ВСЕ ИГРЫ КАТАЛОГА УЖЕ ДОБАВЛЕНЫ</div>'}
+<div class="admin-form"><label>ИЛИ СВОЁ НАЗВАНИЕ</label><input id="new-tab-name" maxlength="24" placeholder="Oxide, PUBG..."><button class="profile-action" id="new-tab-ok">ДОБАВИТЬ ВКЛАДКУ</button></div>`;
+  const done=name=>{const t=addGameTab(name);if(!t)return;closeModal();buildGameTabs();switchShop(t.id);showNotif('✅ ВКЛАДКА: '+t.label.toUpperCase());};
+  body.querySelectorAll('[data-add-game]').forEach(b=>b.onclick=()=>done(b.dataset.addGame));
+  document.getElementById('new-tab-ok').onclick=()=>done(document.getElementById('new-tab-name').value);
+  document.getElementById('modal').classList.add('open');
+  if(tg){tg.BackButton.show();tg.BackButton.onClick(closeModal);}
 };
 
 /* =========== HOME NEWS =========== */
@@ -646,35 +668,32 @@ ${n.pinned?'<div class="news-pin">📌 ЗАКРЕПЛЕНО</div>':''}
 </div>`).join('');
 }
 
-/* =========== TABS =========== */
-const FIXED_TAB_ORDER=['home','about','faq','settings'];
-let tabOrder=['home',...S.gameTabs.map(g=>g.id),'about','faq','settings'];
+/* =========== TOP TABS (О НАС / FAQ / НАСТРОЙКИ) =========== */
+const tabOrder=['home','about','faq','settings'];
 let currentTab='home';
 
-function updateTabOrder(){tabOrder=['home',...S.gameTabs.map(g=>g.id),'about','faq','settings'];}
-
 function moveIndicator(){
-  const a=document.querySelector('.tab.active'),ind=document.getElementById('tab-indicator');
-  if(!a)return;ind.style.left=a.offsetLeft+'px';ind.style.width=a.offsetWidth+'px';
+  const a=document.querySelector('#tabs .tab.active'),ind=document.getElementById('tab-indicator');
+  if(!a){ind.style.width='0';return;}
+  ind.style.left=a.offsetLeft+'px';ind.style.width=a.offsetWidth+'px';
 }
 
 function switchTab(tab){
   if(profileOpened){document.body.classList.remove('profile-open');document.getElementById('page-profile').classList.remove('active');profileOpened=false;document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.toggle('active',b.dataset.bottom==='keys'));}
-  updateTabOrder();
   if(tab===currentTab){const p=document.getElementById('page-'+tab);if(p)p.classList.add('active');return;}
   Sound.tab();haptic();
   const old=document.getElementById('page-'+currentTab),nw=document.getElementById('page-'+tab);
   if(!old||!nw){currentTab=tab;return;}
   const dir=tabOrder.indexOf(tab)>tabOrder.indexOf(currentTab)?'leave-left':'leave-right';
-  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
+  document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
   moveIndicator();
   old.classList.add(dir);
   setTimeout(()=>{old.classList.remove('active',dir);nw.classList.add('active');window.scrollTo({top:0,behavior:'smooth'});},200);
   currentTab=tab;
   document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.toggle('active',b.dataset.bottom==='keys'));
 }
-
-addEventListener('resize',moveIndicator);
+document.querySelectorAll('#tabs .tab').forEach(t=>t.onclick=()=>switchTab(currentTab===t.dataset.tab&&!profileOpened?'home':t.dataset.tab));
+addEventListener('resize',()=>{moveIndicator();syncSticky();});
 document.querySelectorAll('.faq-item').forEach(f=>f.onclick=()=>{f.classList.toggle('open');Sound.click();haptic();});
 
 /* SETTINGS UI */
@@ -696,7 +715,7 @@ initSettingsUI();
 function switchBottom(name){
   document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.toggle('active',b.dataset.bottom===name));
   if(name==='profile'){document.body.classList.add('profile-open');document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.getElementById('page-profile').classList.add('active');profileOpened=true;loadProfile();}
-  else{document.body.classList.remove('profile-open');document.getElementById('page-profile').classList.remove('active');profileOpened=false;switchTab(currentTab==='home'||S.gameTabs.find(g=>g.id===currentTab)||FIXED_TABS_AFTER.includes(currentTab)?currentTab:'home');}
+  else{document.body.classList.remove('profile-open');document.getElementById('page-profile').classList.remove('active');profileOpened=false;switchTab('home');}
 }
 document.querySelectorAll('.bottom-nav button').forEach(b=>b.onclick=()=>{Sound.tab();haptic();switchBottom(b.dataset.bottom);});
 
@@ -841,32 +860,38 @@ async function renderAdmin(section){
   }
 
   if(section==='keys'){
-    // SIMPLIFIED: one cheat, pick 1/7/30, paste keys
     const list=adminProducts.filter(p=>p.is_active);
+    if(!list.length){out.innerHTML='<div class="empty"><div class="empty-icon">📦</div>СНАЧАЛА ДОБАВЬ ТОВАР</div>';return;}
     out.innerHTML=`<div class="admin-form">
 <label>ТОВАР</label>
-<select id="key-product">${list.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+<select id="key-product">${list.map(p=>`<option value="${p.id}">${esc(p.name)} · ${esc(p.game)}</option>`).join('')}</select>
 <label>СРОК КЛЮЧЕЙ</label>
 <div class="duration-choice-grid" id="key-duration-options"></div>
-<label>КЛЮЧИ — ПО ОДНОМУ НА СТРОКУ</label>
-<textarea id="key-values" placeholder="key1&#10;key2&#10;key3"></textarea>
-<button class="profile-action" id="add-keys">ДОБАВИТЬ КЛЮЧИ</button>
+<label>КЛЮЧИ — ПО ОДНОМУ НА СТРОКУ · НАЙДЕНО: <span id="key-count" style="color:var(--accent)">0</span></label>
+<textarea id="key-values" placeholder="key1&#10;key2&#10;key3" style="min-height:120px"></textarea>
+<div class="key-hint">ПУСТЫЕ СТРОКИ И ПОВТОРЫ УБИРАЮТСЯ АВТОМАТИЧЕСКИ</div>
+<button class="profile-action" id="add-keys" disabled>ДОБАВИТЬ КЛЮЧИ</button>
 </div>`;
-    // Only show 1, 7, 30
-    let selectedKeyDuration=1;
+    const sel=document.getElementById('key-product'),ta=document.getElementById('key-values'),cnt=document.getElementById('key-count'),btn=document.getElementById('add-keys');
+    let dur=1;
+    const parse=()=>[...new Set(ta.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean))];
     const fill=()=>{
-      document.getElementById('key-duration-options').innerHTML=[1,7,30].map(d=>`<button type="button" class="duration-choice preset ${d===selectedKeyDuration?'active':''}" data-key-duration="${d}">${durationText(d)}</button>`).join('');
-      document.querySelectorAll('[data-key-duration]').forEach(b=>b.onclick=()=>{selectedKeyDuration=Number(b.dataset.keyDuration);fill();});
+      const p=list.find(x=>String(x.id)===sel.value)||list[0];
+      document.getElementById('key-duration-options').innerHTML=[1,7,30].map(d=>{const n=Number(p?.stock?.[String(d)]||0);return `<button type="button" class="duration-choice preset ${d===dur?'active':''} ${n?'':'out'}" data-key-duration="${d}">${durationText(d)}<small>В НАЛИЧИИ: ${n}</small></button>`;}).join('');
+      document.querySelectorAll('[data-key-duration]').forEach(b=>b.onclick=()=>{dur=Number(b.dataset.keyDuration);Sound.click();fill();});
     };
-    fill();
-    document.getElementById('add-keys').onclick=async()=>{
-      const keyInput=document.getElementById('key-values');
+    const upd=()=>{const n=parse().length;cnt.textContent=n;btn.disabled=!n;};
+    sel.onchange=fill;ta.oninput=upd;fill();
+    btn.onclick=async()=>{
+      const keys=parse();if(!keys.length)return;
+      btn.disabled=true;btn.textContent='ДОБАВЛЯЮ...';
       try{
-        const r=await apiRequest(`/api/admin/products/${document.getElementById('key-product').value}/keys`,{method:'POST',body:JSON.stringify({duration_days:Number(selectedKeyDuration),keys:keyInput.value})});
-        keyInput.value='';
+        const r=await apiRequest(`/api/admin/products/${sel.value}/keys`,{method:'POST',body:JSON.stringify({duration_days:dur,keys:keys.join('\n')})});
+        ta.value='';upd();Sound.buy();
         showNotif(`✅ ДОБАВЛЕНО: ${r.added}${r.skipped?` · ПРОПУЩЕНО: ${r.skipped}`:''}`);
-        adminProducts=await apiRequest('/api/admin/products');
-      }catch(e){showNotif('⚠️ '+e.message);}
+        adminProducts=await apiRequest('/api/admin/products');fill();
+      }catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());Sound.error();}
+      btn.textContent='ДОБАВИТЬ КЛЮЧИ';upd();
     };
     return;
   }
@@ -1013,6 +1038,7 @@ function countUp(id,target){const el=document.getElementById(id);if(!el)return;l
 
 // Init
 buildGameTabs();
+syncSticky();
 loadCheats();
 </script>
 </body>
