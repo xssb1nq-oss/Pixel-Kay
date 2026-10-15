@@ -112,12 +112,35 @@ def user_required(fn):
     return wrapped
 
 
+def viewing_as_buyer():
+    return request.headers.get('X-View-As', '').strip().lower() == 'buyer'
+
+
+_BAN_CACHE = {}
+
+
+def is_banned(uid):
+    uid = int(uid)
+    if uid == ADMIN_ID: return False
+    hit = _BAN_CACHE.get(uid)
+    if hit and time.time() - hit[1] < 30: return hit[0]
+    val = bool(run_async(db.is_banned(uid)))
+    _BAN_CACHE[uid] = (val, time.time())
+    return val
+
+
+def deny_banned():
+    if is_banned(request.tg_user['id']):
+        return jsonify({'error':'Аккаунт заблокирован. Напиши в поддержку.'}), 403
+    return None
+
+
 def admin_required(fn):
     from functools import wraps
     @wraps(fn)
     @user_required
     def wrapped(*args, **kwargs):
-        if int(request.tg_user['id']) != ADMIN_ID:
+        if int(request.tg_user['id']) != ADMIN_ID or viewing_as_buyer():
             return jsonify({'error':'Нет доступа'}), 403
         return fn(*args, **kwargs)
     return wrapped
@@ -176,6 +199,15 @@ RANK_STEPS = [(0, 0), (3, 3), (10, 5), (25, 10)]
 QTY_DISCOUNT = {1: 0, 3: 5, 5: 10}
 
 
+def price_for(c, duration):
+    """Цена товара на конкретный срок (если задана отдельно), иначе базовая."""
+    pr = (decode_json(c['extra'], {}).get('prices') or {}).get(str(duration))
+    if pr:
+        try: return int(pr.get('uah', c['price_rub'])), max(1, int(pr.get('stars', c['price_stars'])))
+        except (TypeError, ValueError): pass
+    return int(c['price_rub']), int(c['price_stars'])
+
+
 def rank_discount(purchases):
     d = 0
     for need, pct in RANK_STEPS:
@@ -195,7 +227,7 @@ def public_product(c, include_admin=False, stock_map=None, shots=None):
         'version':extra.get('version') or '', 'updated_at':extra.get('updated_at') or None,
         'badges':extra.get('badges') or [], 'old_price_rub':extra.get('old_price_rub'),
         'old_price_stars':extra.get('old_price_stars'), 'video_url':extra.get('video_url') or '',
-        'trial':bool(extra.get('trial')),
+        'trial':bool(extra.get('trial')), 'prices':extra.get('prices') or {},
         'screenshots':[f"/api/product/{c['id']}/shot/{i}" for i in ((shots or {}).get(int(c['id']), []))],
     }
     if include_admin:
@@ -217,6 +249,37 @@ def catalog(include_inactive=False):
 @app.route('/')
 def index():
     return send_from_directory(app.root_path, 'index.html')
+
+
+SOUND_EXT = ('.mp3', '.ogg', '.wav', '.m4a')
+SOUND_NAMES = {'click','tab','open','close','buy','start','tick','error','theme','toggle_on','toggle_off','music'}
+
+
+def find_sounds():
+    """Свои звуки: ищем в static/sounds, sounds и прямо в корне репозитория (только известные имена)."""
+    found = {}
+    for d in (os.path.join(app.root_path, 'static', 'sounds'), os.path.join(app.root_path, 'sounds'), app.root_path):
+        try: names = os.listdir(d)
+        except OSError: continue
+        for f in names:
+            base, ext = os.path.splitext(f)
+            key = base.lower()
+            if ext.lower() in SOUND_EXT and key in SOUND_NAMES and key not in found:
+                found[key] = (d, f)
+    return found
+
+
+@app.route('/api/sounds')
+def list_sounds():
+    return jsonify(sorted(f for _, f in find_sounds().values()))
+
+
+@app.route('/sound/<path:filename>')
+def serve_sound(filename):
+    for d, f in find_sounds().values():
+        if f == filename:
+            return send_from_directory(d, f, max_age=3600)
+    return '', 404
 
 
 @app.route('/api/cheats')
@@ -264,13 +327,18 @@ def profile():
         inventory.append(d)
     orders = run_async(db.list_orders(user_id=user['id']))
     return jsonify({'user':user, 'inventory':inventory, 'orders':[json_safe(x) for x in orders],
-                    'is_admin':int(user['id']) == ADMIN_ID,
+                    'is_admin':int(user['id']) == ADMIN_ID and not viewing_as_buyer(),
+                    'real_admin':int(user['id']) == ADMIN_ID,
+                    'view_as':'buyer' if (int(user['id']) == ADMIN_ID and viewing_as_buyer()) else '',
+                    'banned':is_banned(user['id']),
                     'purchases_count':run_async(db.purchases_count(user['id']))})
 
 
 @app.route('/api/orders', methods=['POST'])
 @user_required
 def create_order():
+    _d = deny_banned()
+    if _d: return _d
     data = request.get_json(silent=True) or {}
     try:
         product_id = int(data.get('product_id', data.get('cheat_id')))
@@ -307,8 +375,9 @@ def create_order():
     purchases = run_async(db.purchases_count(user['id']))
     _, paid_refs = run_async(db.referral_stats(user['id']))
     pct = min(90, QTY_DISCOUNT[quantity] + rank_discount(purchases) + min(10, paid_refs * 2) + (int(promo['percent']) if promo else 0))
-    amount_uah = round(int(c['price_rub']) * quantity * (100 - pct) / 100)
-    amount_stars = max(1, round(int(c['price_stars']) * quantity * (100 - pct) / 100))
+    unit_uah, unit_stars = price_for(c, duration_days)
+    amount_uah = round(unit_uah * quantity * (100 - pct) / 100)
+    amount_stars = max(1, round(unit_stars * quantity * (100 - pct) / 100))
     order_id = run_async(db.create_order(user['id'], user.get('username'), product_id, payment_type, duration_days,
                                          quantity, amount_uah, amount_stars, promo['code'] if promo else None))
     if payment_type == 'stars':
@@ -338,6 +407,8 @@ def create_order():
 @app.route('/api/orders/<int:order_id>/receipt', methods=['POST'])
 @user_required
 def upload_receipt(order_id):
+    _d = deny_banned()
+    if _d: return _d
     user = request.tg_user
     order = run_async(db.get_order_details(order_id))
     if not order or int(order['user_id']) != int(user['id']):
@@ -440,6 +511,21 @@ def save_product(product_id=None):
             'video_url':video if video.startswith(('http://','https://')) else '',
             'trial':bool(data.get('trial')),
         }
+        prices = {}
+        raw_prices = data.get('prices') or {}
+        for d in durations:
+            r = raw_prices.get(str(d))
+            if r:
+                u = int(r.get('uah', 0)); st = int(r.get('stars', 0))
+                if u < 0 or st < 1: raise ValueError()
+                prices[str(d)] = {'uah':u, 'stars':st, 'old_uah':opt_int(r.get('old_uah'))}
+        if prices:
+            payload['price_rub'] = min(v['uah'] for v in prices.values())
+            payload['price_stars'] = min(v['stars'] for v in prices.values())
+            cheapest = min(prices.values(), key=lambda v: v['uah'])
+            extra['old_price_rub'] = cheapest['old_uah']
+            extra['old_price_stars'] = None
+        extra['prices'] = prices
         new_shots = []
         for item in (data.get('new_screenshots') or [])[:5]:
             raw = item.get('image_data','')
@@ -534,6 +620,88 @@ def keys_count(cheat_id):
     except Exception: return jsonify({'stock':{}}),500
 
 
+# ===================== СКЛАД: УДАЛЕНИЕ СВОБОДНЫХ КЛЮЧЕЙ =====================
+@app.route('/api/admin/products/<int:product_id>/keys')
+@admin_required
+def admin_list_keys(product_id):
+    duration = request.args.get('duration', type=int)
+    if not duration: return jsonify([])
+    rows = run_async(db.list_free_keys(product_id, duration))
+    return jsonify([{'id':r['id'],'key':r['key_value']} for r in rows])
+
+
+@app.route('/api/admin/keys/<int:key_id>', methods=['DELETE'])
+@admin_required
+def admin_delete_key(key_id):
+    n = run_async(db.delete_free_key(key_id))
+    if not n: return jsonify({'error':'Ключ не найден или уже выдан'}), 404
+    return jsonify({'ok':True})
+
+
+@app.route('/api/admin/products/<int:product_id>/keys/clear', methods=['POST'])
+@admin_required
+def admin_clear_keys(product_id):
+    data = request.get_json(silent=True) or {}
+    try: duration = int(data.get('duration_days'))
+    except (TypeError, ValueError): return jsonify({'error':'Выбери срок'}), 400
+    return jsonify({'ok':True,'deleted':run_async(db.clear_free_keys(product_id, duration))})
+
+
+# ===================== КЛИЕНТЫ =====================
+@app.route('/api/admin/clients')
+@admin_required
+def admin_clients():
+    rows = run_async(db.list_clients(request.args.get('q', '')))
+    return jsonify([json_safe(r) for r in rows])
+
+
+@app.route('/api/admin/clients/<int:uid>')
+@admin_required
+def admin_client(uid):
+    u = run_async(db.get_user(uid))
+    if not u: return jsonify({'error':'Клиент не найден'}), 404
+    orders = run_async(db.list_orders(user_id=uid))
+    return jsonify({'user':json_safe(u), 'orders':[json_safe(o) for o in orders]})
+
+
+@app.route('/api/admin/clients/<int:uid>/ban', methods=['POST'])
+@admin_required
+def admin_ban_client(uid):
+    if uid == ADMIN_ID: return jsonify({'error':'Себя заблокировать нельзя'}), 400
+    banned = bool((request.get_json(silent=True) or {}).get('banned'))
+    run_async(db.set_banned(uid, banned))
+    _BAN_CACHE[uid] = (banned, time.time())
+    if banned: notify_async([uid], '🚫 Ваш аккаунт заблокирован. Если это ошибка — напишите в поддержку.', button=False)
+    else: notify_async([uid], '✅ Ваш аккаунт разблокирован.', button=True)
+    return jsonify({'ok':True,'banned':banned})
+
+
+@app.route('/api/admin/clients/<int:uid>', methods=['DELETE'])
+@admin_required
+def admin_delete_client(uid):
+    if uid == ADMIN_ID: return jsonify({'error':'Свой профиль удалить нельзя'}), 400
+    run_async(db.delete_user(uid))
+    _BAN_CACHE.pop(uid, None)
+    return jsonify({'ok':True})
+
+
+# ===================== ОЧИСТКА ИНВЕНТАРЯ =====================
+@app.route('/api/inventory/clear', methods=['POST'])
+@user_required
+def clear_inventory():
+    data = request.get_json(silent=True) or {}
+    user = request.tg_user
+    if data.get('order_id') is not None:
+        try: oid = int(data.get('order_id'))
+        except (TypeError, ValueError): return jsonify({'error':'Некорректный ключ'}), 400
+        cleared = run_async(db.hide_inventory(user['id'], order_id=oid))
+    elif data.get('scope') in ('expired', 'all'):
+        cleared = run_async(db.hide_inventory(user['id'], scope=data['scope']))
+    else:
+        return jsonify({'error':'Что очистить?'}), 400
+    return jsonify({'ok':True,'cleared':cleared})
+
+
 # ===================== НОВОСТИ / РАССЫЛКА =====================
 @app.route('/api/news')
 def get_news():
@@ -551,6 +719,17 @@ def admin_add_news():
     if not body: return jsonify({'error':'Пустая новость'}), 400
     nid = run_async(db.add_news(str(data.get('title') or '').strip()[:120], body, bool(data.get('pinned'))))
     return jsonify({'ok':True,'id':nid})
+
+
+@app.route('/api/admin/news/<int:news_id>', methods=['PUT'])
+@admin_required
+def admin_edit_news(news_id):
+    data = request.get_json(silent=True) or {}
+    body = str(data.get('body') or '').strip()[:1000]
+    if not body: return jsonify({'error':'Пустая новость'}), 400
+    done = run_async(db.update_news(news_id, str(data.get('title') or '').strip()[:120], body, bool(data.get('pinned'))))
+    if not done: return jsonify({'error':'Новость не найдена'}), 404
+    return jsonify({'ok':True})
 
 
 @app.route('/api/admin/news/<int:news_id>', methods=['DELETE'])
@@ -590,6 +769,8 @@ def parse_review(data):
 @app.route('/api/reviews', methods=['POST'])
 @user_required
 def post_review():
+    _d = deny_banned()
+    if _d: return _d
     """Отзыв может оставить только тот, кто купил этот чит. Имя берётся из Telegram, время — текущее."""
     data = request.get_json(silent=True) or {}
     user = request.tg_user
@@ -652,6 +833,8 @@ def admin_delete_review(review_id):
 @app.route('/api/subscriptions', methods=['POST'])
 @user_required
 def subscriptions():
+    _d = deny_banned()
+    if _d: return _d
     data = request.get_json(silent=True) or {}
     game = str(data.get('game') or '').strip()
     if not game: return jsonify({'error':'Не указана игра'}), 400
@@ -671,6 +854,8 @@ def referrals():
 @app.route('/api/trial', methods=['POST'])
 @user_required
 def trial():
+    _d = deny_banned()
+    if _d: return _d
     data = request.get_json(silent=True) or {}
     try: product_id = int(data.get('product_id'))
     except (TypeError, ValueError): return jsonify({'error':'Некорректный товар'}), 400
