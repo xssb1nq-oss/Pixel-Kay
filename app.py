@@ -251,37 +251,6 @@ def index():
     return send_from_directory(app.root_path, 'index.html')
 
 
-SOUND_EXT = ('.mp3', '.ogg', '.wav', '.m4a')
-SOUND_NAMES = {'click','tab','open','close','buy','start','tick','error','theme','toggle_on','toggle_off','music'}
-
-
-def find_sounds():
-    """Свои звуки: ищем в static/sounds, sounds и прямо в корне репозитория (только известные имена)."""
-    found = {}
-    for d in (os.path.join(app.root_path, 'static', 'sounds'), os.path.join(app.root_path, 'sounds'), app.root_path):
-        try: names = os.listdir(d)
-        except OSError: continue
-        for f in names:
-            base, ext = os.path.splitext(f)
-            key = base.lower()
-            if ext.lower() in SOUND_EXT and key in SOUND_NAMES and key not in found:
-                found[key] = (d, f)
-    return found
-
-
-@app.route('/api/sounds')
-def list_sounds():
-    return jsonify(sorted(f for _, f in find_sounds().values()))
-
-
-@app.route('/sound/<path:filename>')
-def serve_sound(filename):
-    for d, f in find_sounds().values():
-        if f == filename:
-            return send_from_directory(d, f, max_age=3600)
-    return '', 404
-
-
 @app.route('/api/cheats')
 def get_cheats():
     try:
