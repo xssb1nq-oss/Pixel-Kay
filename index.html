@@ -507,7 +507,7 @@ const tg=window.Telegram?window.Telegram.WebApp:null;
 const initData=tg?tg.initData:'';
 let profileData=null,selectedDuration=1,selectedQty=1,profileOpened=false;
 const apiHeaders=()=>({'Content-Type':'application/json','X-Telegram-Init-Data':initData});
-async function apiRequest(url,options={}){const r=await fetch(url,{...options,headers:{...apiHeaders(),...(options.headers||{})}});let d={};try{d=await r.json()}catch(e){}if(!r.ok)throw new Error(d.error||'Ошибка запроса');return d;}
+async function apiRequest(url,options={}){const r=await fetch(url,{...options,headers:{...apiHeaders(),...(options.headers||{})}});let d={};try{d=await r.json()}catch(e){}if(!r.ok)throw new Error(d.error||('Ошибка запроса ('+r.status+')'));return d;}
 if(tg){tg.ready();tg.expand();try{tg.setHeaderColor('#10101b');tg.setBackgroundColor('#07070d');}catch(e){}}
 
 /* SETTINGS */
@@ -871,6 +871,8 @@ async function loadProfile(){const box=document.getElementById('profile-content'
 function durationText(days){return days===1?'1 ДЕНЬ':days===7?'7 ДНЕЙ':days===30?'30 ДНЕЙ':days===90?'90 ДНЕЙ':days===365?'1 ГОД':`${days} ДНЕЙ`;}
 
 function isExpiringSoon(x){const left=new Date(x.expires_at).getTime()-Date.now();return left>0&&left<Math.min(86400000,Number(x.duration_days||1)*86400000*.25);}
+const hasBought=c=>(profileData?.inventory||[]).some(x=>String(x.product_id)===String(c.id)||(!x.product_id&&norm(x.name)===norm(c.name)));
+const myNick=()=>{const u=profileData?.user||{};return u.username?'@'+u.username:([u.first_name,u.last_name].filter(Boolean).join(' ')||'ПОКУПАТЕЛЬ');};
 const prodOf=x=>allCheats.find(c=>String(c.id)===String(x.product_id))||allCheats.find(c=>norm(c.name)===norm(x.name));
 function checkExpiring(){const soon=(profileData?.inventory||[]).filter(isExpiringSoon);if(soon.length)setTimeout(()=>showNotif('⏰ КЛЮЧ «'+String(soon[0].name||'').toUpperCase()+'» СКОРО ЗАКОНЧИТСЯ'),3500);}
 
@@ -915,10 +917,22 @@ ${soon?'<div class="expire-warn">⏰ СКОРО ЗАКОНЧИТСЯ — ПРО�
 <div class="inv-actions">${instr?`<button type="button" class="copy-btn" data-instr="${idx}">📖 ИНСТРУКЦИЯ</button>`:''}${p?`<button type="button" class="copy-btn" data-extend="${idx}">🔁 ПРОДЛИТЬ</button><button type="button" class="copy-btn" data-review="${idx}">⭐ ОТЗЫВ</button>`:''}</div><div class="inv-instr" id="instr-${idx}"></div></div>`;
 }
 
-function openReviewForm(p){
-  const b=openModalWith('⭐ ОТЗЫВ: '+p.name,`<label class="buy-title">▸ ТВОЯ ОЦЕНКА</label><div class="stars-pick" id="rv-stars"></div><div class="admin-form"><label>ТВОЙ ОТЗЫВ</label><textarea id="rv-text" maxlength="500"></textarea><button class="profile-action" id="rv-send">ОТПРАВИТЬ ОТЗЫВ</button></div>`);
+function openReviewForm(p,fromModal){
+  openModalWith('⭐ ОТЗЫВ: '+p.name,`${fromModal?'<button type="button" class="copy-btn" id="rv-back">← НАЗАД К ЧИТУ</button>':''}<label class="buy-title">▸ ТВОЯ ОЦЕНКА</label><div class="stars-pick" id="rv-stars"></div>
+<div class="admin-form"><label>ТВОЙ ОТЗЫВ</label><textarea id="rv-text" maxlength="500"></textarea>
+<div class="key-hint">ОТЗЫВ БУДЕТ ОПУБЛИКОВАН ОТ ИМЕНИ <b style="color:var(--accent)">${esc(myNick())}</b>. ИМЯ И ВРЕМЯ ИЗМЕНИТЬ НЕЛЬЗЯ.</div>
+<button class="profile-action" id="rv-send">ОТПРАВИТЬ ОТЗЫВ</button></div>`);
   const rate=starsPick(document.getElementById('rv-stars'),5);
-  document.getElementById('rv-send').onclick=async()=>{const text=document.getElementById('rv-text').value.trim();if(!text){showNotif('⚠️ НАПИШИ ТЕКСТ ОТЗЫВА');return;}try{await apiRequest('/api/reviews',{method:'POST',body:JSON.stringify({product_id:Number(p.id),rating:rate(),text})});showNotif('✅ СПАСИБО ЗА ОТЗЫВ!');Sound.buy();closeModal();loadReviews();}catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());Sound.error();}};
+  const back=document.getElementById('rv-back');if(back)back.onclick=()=>renderCheatModal();
+  document.getElementById('rv-send').onclick=async()=>{
+    const text=document.getElementById('rv-text').value.trim();
+    if(!text){showNotif('⚠️ НАПИШИ ТЕКСТ ОТЗЫВА');return;}
+    try{
+      await apiRequest('/api/reviews',{method:'POST',body:JSON.stringify({product_id:Number(p.id),rating:rate(),text})});
+      showNotif('✅ СПАСИБО ЗА ОТЗЫВ!');Sound.buy();await loadReviews();
+      fromModal&&currentCheat?renderCheatModal():closeModal();
+    }catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());Sound.error();}
+  };
 }
 
 /* TICKETS */
@@ -963,7 +977,7 @@ function renderCheatModal(){
   const shots=[c.image_url,...(c.screenshots||[])].filter(Boolean);
   const gallery=shots.length?`<div class="gallery">${shots.map(u=>`<img src="${esc(u)}" data-zoom="${esc(u)}" alt="">`).join('')}</div>`:'';
   const features=(c.features||[]).length?`<div class="modal-info-row"><span class="modal-info-label">⚙️ ФУНКЦИИ</span><span class="modal-info-value">${c.features.map(esc).join('<br>')}</span></div>`:'';
-  const allRevs=reviewsCache.filter(r=>Number(r.product_id)===Number(c.id)).sort(byDateDesc),revs=showAllReviews?allRevs:allRevs.slice(0,5),adm=isAdminUser();
+  const allRevs=reviewsCache.filter(r=>Number(r.product_id)===Number(c.id)).sort(byDateDesc),revs=showAllReviews?allRevs:allRevs.slice(0,5),adm=isAdminUser(),bought=hasBought(c);
   const oldU=Number(c.old_price_rub)>Number(c.price_rub);
   const noKeyText=down?'🔴 ЧИТ НЕ РАБОТАЕТ — ПОКУПКА ЗАКРЫТА':'⚠️ НЕТ КЛЮЧЕЙ НА ЭТОТ СРОК';
   body.innerHTML=`${gallery}
@@ -991,7 +1005,7 @@ ${c.trial&&!down?'<button class="btn trial-btn" id="trial-btn">🎁 ПРОБНЫ
 </div>
 <div class="no-keys-badge">СРОК НАЧИНАЕТСЯ ПОСЛЕ ПОДТВЕРЖДЕНИЯ ОПЛАТЫ</div>
 <div class="support-row"><button type="button" class="copy-btn" id="support-btn">💬 ВОПРОС ПО ЧИТУ</button></div></div>
-${allRevs.length||adm?`<div class="buy-title" style="margin-top:18px">▸ ОТЗЫВЫ (${allRevs.length})${rt?` · ★ ${rt.avg.toFixed(1)}`:''}</div>${adm?'<button type="button" class="profile-action" id="rv-add" style="margin:0 0 10px">➕ ДОБАВИТЬ ОТЗЫВ К ЭТОМУ ЧИТУ</button>':''}${revs.map((r,i)=>reviewHtml(r,i,{inModal:true,admin:adm})).join('')}${allRevs.length>revs.length?`<button type="button" class="copy-btn" id="rv-more">ПОКАЗАТЬ ВСЕ ОТЗЫВЫ (${allRevs.length})</button>`:''}`:''}`;
+${allRevs.length||adm||bought?`<div class="buy-title" style="margin-top:18px">▸ ОТЗЫВЫ (${allRevs.length})${rt?` · ★ ${rt.avg.toFixed(1)}`:''}</div>${adm?'<button type="button" class="profile-action" id="rv-add" style="margin:0 0 10px">➕ ДОБАВИТЬ ОТЗЫВ К ЭТОМУ ЧИТУ</button>':''}${bought&&!adm?'<button type="button" class="profile-action" id="rv-mine" style="margin:0 0 10px">⭐ ОСТАВИТЬ СВОЙ ОТЗЫВ</button>':''}${revs.map((r,i)=>reviewHtml(r,i,{inModal:true,admin:adm})).join('')}${allRevs.length>revs.length?`<button type="button" class="copy-btn" id="rv-more">ПОКАЗАТЬ ВСЕ ОТЗЫВЫ (${allRevs.length})</button>`:''}`:''}`;
 
   document.querySelectorAll('#duration-options [data-duration]').forEach(b=>b.onclick=()=>{selectedDuration=Number(b.dataset.duration);renderCheatModal();});
   document.querySelectorAll('#qty-options [data-qty]').forEach(b=>b.onclick=()=>{selectedQty=Number(b.dataset.qty);renderCheatModal();});
@@ -1000,6 +1014,7 @@ ${allRevs.length||adm?`<div class="buy-title" style="margin-top:18px">▸ ОТЗ
   const tb=document.getElementById('trial-btn');if(tb)tb.onclick=getTrial;
   const vb=document.getElementById('video-btn');if(vb)vb.onclick=()=>openUrl(c.video_url);
   document.getElementById('support-btn').onclick=openSupport;
+  const mineB=document.getElementById('rv-mine');if(mineB)mineB.onclick=()=>openReviewForm(c,true);
   const addB=document.getElementById('rv-add');if(addB)addB.onclick=()=>openAdminReviewForm(c,null);
   const moreB=document.getElementById('rv-more');if(moreB)moreB.onclick=()=>{showAllReviews=true;renderCheatModal();};
   body.querySelectorAll('[data-rv-edit]').forEach(b=>b.onclick=()=>{const r=reviewsCache.find(x=>Number(x.id)===Number(b.dataset.rvEdit));if(r)openAdminReviewForm(c,r);});
@@ -1156,72 +1171,7 @@ async function renderAdmin(section){
     return;
   }
 
-  if(section==='news'){
-    out.innerHTML=`<div class="admin-form">
-<label>ЗАГОЛОВОК</label><input id="news-title" placeholder="Обновление ключей Oxide...">
-<label>ТЕКСТ НОВОСТИ</label><textarea id="news-body" placeholder="Добавили 50 новых ключей..."></textarea>
-<div style="display:flex;align-items:center;gap:10px;margin:10px 0;font-size:6px;color:var(--text2)">
-<div class="toggle" id="news-pinned-toggle"></div><span>ЗАКРЕПИТЬ ВВЕРХУ</span>
-</div>
-<button class="profile-action" id="post-news">📰 ОПУБЛИКОВАТЬ НОВОСТЬ</button>
-</div>
-<div class="section-title" style="margin-top:14px">ТЕКУЩИЕ НОВОСТИ</div>
-<div id="news-admin-list"><div class="empty">Загрузка...</div></div>`;
 
-    let newsPinned=false;
-    const toggleEl=document.getElementById('news-pinned-toggle');
-    toggleEl.onclick=()=>{newsPinned=!newsPinned;toggleEl.classList.toggle('on',newsPinned);};
-
-    document.getElementById('post-news').onclick=async()=>{
-      const title=document.getElementById('news-title').value.trim();
-      const body=document.getElementById('news-body').value.trim();
-      if(!title||!body){showNotif('⚠️ ЗАПОЛНИ ЗАГОЛОВОК И ТЕКСТ');return;}
-      try{
-        await apiRequest('/api/admin/news',{method:'POST',body:JSON.stringify({title,body,pinned:newsPinned})});
-        showNotif('✅ НОВОСТЬ ОПУБЛИКОВАНА');
-        document.getElementById('news-title').value='';
-        document.getElementById('news-body').value='';
-        newsPinned=false;toggleEl.classList.remove('on');
-        loadAdminNews();
-        loadHomeNews();
-      }catch(e){showNotif('⚠️ '+e.message);}
-    };
-    loadAdminNews();
-    return;
-  }
-
-  if(section==='notify'){
-    out.innerHTML=`<div class="admin-form">
-<div class="section-title" style="margin-top:0">📣 ОТПРАВИТЬ УВЕДОМЛЕНИЕ</div>
-<label>ТИП УВЕДОМЛЕНИЯ</label>
-<div class="notify-type-row">
-<button class="notify-type-btn active" data-ntype="keys">🔑 КЛЮЧИ ПОПОЛНЕНЫ</button>
-<button class="notify-type-btn" data-ntype="cheats">🎮 НОВЫЕ ЧИТЫ</button>
-<button class="notify-type-btn" data-ntype="custom">✏️ СВОЁ СООБЩЕНИЕ</button>
-</div>
-<label>ИГРА / ДЕТАЛИ (необязательно)</label>
-<input id="notify-game" placeholder="Oxide, PUBG...">
-<label>ДОПОЛНИТЕЛЬНЫЙ ТЕКСТ</label>
-<textarea id="notify-text" placeholder="Дополнительная информация..."></textarea>
-<button class="profile-action" id="send-notify">📣 ОТПРАВИТЬ ВСЕМ ПОЛЬЗОВАТЕЛЯМ</button>
-</div>`;
-
-    let notifyType='keys';
-    out.querySelectorAll('[data-ntype]').forEach(b=>b.onclick=()=>{
-      notifyType=b.dataset.ntype;
-      out.querySelectorAll('[data-ntype]').forEach(x=>x.classList.toggle('active',x===b));
-    });
-
-    document.getElementById('send-notify').onclick=async()=>{
-      const game=document.getElementById('notify-game').value.trim();
-      const text=document.getElementById('notify-text').value.trim();
-      try{
-        await apiRequest('/api/admin/notify',{method:'POST',body:JSON.stringify({type:notifyType,game,text})});
-        showNotif('✅ УВЕДОМЛЕНИЕ ОТПРАВЛЕНО');
-      }catch(e){showNotif('⚠️ '+e.message);}
-    };
-    return;
-  }
 }
 
 async function loadAdminNews(){
@@ -1235,7 +1185,55 @@ async function loadAdminNews(){
   }catch(e){box.innerHTML='<div class="empty">Ошибка загрузки</div>';}
 }
 
+const TPL={
+  keys:{icon:'🔑',label:'НОВЫЙ ЗАВОЗ КЛЮЧЕЙ',title:'Новый завоз ключей',text:g=>`Новый завоз ключей для - «${g}»`},
+  cheat:{icon:'🎮',label:'НОВЫЙ ЧИТ',title:'Новый чит',text:g=>`Новый чит для - «${g}»`}
+};
+function tplPicker(box){
+  let type='keys';
+  const games=catalogGames();
+  box.innerHTML=`<label>ШАБЛОН СООБЩЕНИЯ</label><div class="notify-type-row">${Object.entries(TPL).map(([k,t])=>`<button type="button" class="notify-type-btn" data-tpl="${k}">${t.icon} ${t.label}</button>`).join('')}</div>
+<label>ИГРА — ЕДИНСТВЕННОЕ, ЧТО НУЖНО ВПИСАТЬ</label>
+${games.length?`<div class="chips">${games.map(g=>`<button type="button" class="chip" data-g="${esc(g)}">${esc(g)}</button>`).join('')}</div>`:''}
+<input id="tpl-game" maxlength="40" placeholder="Например: Oxide" autocomplete="off">
+<div class="about-card o" style="margin:10px 0"><div class="about-title">👁 ПРЕДПРОСМОТР</div><div class="about-text" id="tpl-preview"></div></div>`;
+  const input=box.querySelector('#tpl-game');
+  const upd=()=>{const g=input.value.trim();box.querySelectorAll('[data-tpl]').forEach(b=>b.classList.toggle('active',b.dataset.tpl===type));box.querySelectorAll('[data-g]').forEach(b=>b.classList.toggle('active',norm(b.dataset.g)===norm(g)));box.querySelector('#tpl-preview').textContent=g?TPL[type].icon+' '+TPL[type].text(g):'Выбери игру или впиши название…';};
+  box.querySelectorAll('[data-tpl]').forEach(b=>b.onclick=()=>{type=b.dataset.tpl;Sound.click();upd();});
+  box.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{input.value=b.dataset.g;Sound.click();upd();});
+  input.oninput=upd;upd();
+  return()=>{const game=input.value.trim();return{type,game,title:TPL[type].title,text:game?TPL[type].icon+' '+TPL[type].text(game):''};};
+}
+
 async function renderAdminExtra(section,out){
+  /* ---- НОВОСТИ (по шаблону) ---- */
+  if(section==='news'){
+    out.innerHTML=`<div class="admin-form"><div id="news-tpl"></div>
+<div style="display:flex;align-items:center;gap:10px;margin:10px 0;font-size:6px;color:var(--text2)"><div class="toggle" id="news-pinned-toggle"></div><span>ЗАКРЕПИТЬ ВВЕРХУ</span></div>
+<button class="profile-action" id="post-news">📰 ОПУБЛИКОВАТЬ В НОВОСТЯХ</button></div>
+<div class="section-title" style="margin-top:14px">ТЕКУЩИЕ НОВОСТИ</div><div id="news-admin-list"><div class="empty">Загрузка...</div></div>`;
+    const get=tplPicker(document.getElementById('news-tpl'));let pinned=false;
+    const tg2=document.getElementById('news-pinned-toggle');tg2.onclick=()=>{pinned=!pinned;tg2.classList.toggle('on',pinned);};
+    document.getElementById('post-news').onclick=async()=>{
+      const m=get();if(!m.game){showNotif('⚠️ ВВЕДИ НАЗВАНИЕ ИГРЫ');return;}
+      try{await apiRequest('/api/admin/news',{method:'POST',body:JSON.stringify({title:m.title,body:m.text,pinned})});showNotif('✅ НОВОСТЬ ОПУБЛИКОВАНА');Sound.buy();loadAdminNews();loadHomeNews();}
+      catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());Sound.error();}
+    };
+    loadAdminNews();return true;
+  }
+  /* ---- УВЕДОМЛЕНИЯ (по шаблону) ---- */
+  if(section==='notify'){
+    out.innerHTML=`<div class="admin-form"><div class="section-title" style="margin-top:0">📣 РАССЫЛКА ПОЛЬЗОВАТЕЛЯМ</div><div id="notify-tpl"></div>
+<button class="profile-action" id="send-notify">📣 ОТПРАВИТЬ ВСЕМ</button></div>`;
+    const get=tplPicker(document.getElementById('notify-tpl'));
+    document.getElementById('send-notify').onclick=async()=>{
+      const m=get();if(!m.game){showNotif('⚠️ ВВЕДИ НАЗВАНИЕ ИГРЫ');return;}
+      if(!confirm('Отправить всем пользователям?\n\n'+m.text))return;
+      try{await apiRequest('/api/admin/notify',{method:'POST',body:JSON.stringify({type:m.type==='cheat'?'cheats':'keys',game:m.game,text:m.text})});showNotif('✅ РАССЫЛКА ОТПРАВЛЕНА');Sound.buy();}
+      catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());Sound.error();}
+    };
+    return true;
+  }
   /* ---- ОТЗЫВЫ ---- */
   if(section==='reviews'){
     const prods=adminProducts.filter(p=>p.is_active);let editing=null;
