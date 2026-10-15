@@ -1,6 +1,8 @@
 import asyncio
 import json
+import logging
 import os
+import asyncpg
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
@@ -26,7 +28,7 @@ class OrderStates(StatesGroup):
 
 
 def pixel_header():
-    return '🎮 PIXEL KAY'
+    return '🎮 PIXEL KEY'
 
 
 def main_keyboard():
@@ -53,7 +55,15 @@ def user_label(user):
 
 @dp.message(Command('start'))
 async def start(message: Message):
-    await db.init_db()
+    referrer=None
+    parts=(message.text or '').split(maxsplit=1)
+    if len(parts)>1 and parts[1].startswith('ref_'):
+        try: referrer=int(parts[1][4:])
+        except ValueError: referrer=None
+    try:
+        await db.upsert_user(message.from_user.id,message.from_user.username,message.from_user.first_name,referrer)
+    except Exception:
+        logging.exception('upsert_user failed')
     await message.answer('🎮 PIXEL KAY\nОткрой мини-приложение: каталог, профиль и инвентарь.',reply_markup=main_keyboard())
 
 
@@ -63,6 +73,30 @@ async def admin(message: Message):
         await message.answer('⛔ Нет доступа')
         return
     await message.answer('👑 Панель управления находится в мини-приложении.',reply_markup=open_app_keyboard())
+
+
+def order_caption(o):
+    uname=('@'+o['username']) if o['username'] else f"ID {o['user_id']} (без username)"
+    amount=o['amount_uah'] or o['price_rub']
+    return (f"🧾 КВИТАНЦИЯ · заказ #{o['id']}\n👤 Покупатель: {uname}\n🆔 Telegram ID: {o['user_id']}\n"
+            f"📦 {o['name']} · {o['duration_days']} дн. × {o['quantity'] or 1}\n💵 {amount} UAH\n📝 Комментарий к переводу: {uname}")
+
+
+@dp.message(Command('orders'))
+async def orders_cmd(message: Message):
+    if message.from_user.id!=ADMIN_ID:
+        await message.answer('⛔ Нет доступа'); return
+    rows=[o for o in await db.list_orders(pending_only=True) if o['payment_type']=='card']
+    ready=[o for o in rows if o['receipt_file_id']]
+    waiting=len(rows)-len(ready)
+    if not ready:
+        await message.answer('✅ Нет квитанций на проверке.'+(f'\n⏳ Ждут квитанцию от покупателя: {waiting}' if waiting else '')); return
+    await message.answer(f'🧾 На проверке: {len(ready)}'+(f' · ждут квитанцию: {waiting}' if waiting else ''))
+    for o in ready[:20]:
+        try:
+            await bot.send_photo(ADMIN_ID,o['receipt_file_id'],caption=order_caption(o),reply_markup=admin_order_keyboard(o['id']))
+        except Exception:
+            await bot.send_message(ADMIN_ID,order_caption(o),reply_markup=admin_order_keyboard(o['id']))
 
 
 async def notify_key(order, key_value=None):
@@ -123,10 +157,7 @@ async def chat_receipt(message: Message,state: FSMContext):
     file_id=message.photo[-1].file_id
     await db.update_order_receipt(order_id,file_id)
     order=await db.get_order_details(order_id)
-    username=user_label(message.from_user)
-    caption=(f'🧾 КВИТАНЦИЯ · заказ #{order_id}\n👤 Покупатель: {username}\n🆔 Telegram ID: {message.from_user.id}\n'
-             f'📦 {order["name"] if order else "Товар"} · {order["duration_days"] if order else 30} дн.\n'
-             f'💵 {order["price_rub"] if order else "?"} UAH\n📝 Комментарий к переводу: {username}')
+    caption=order_caption(order) if order else f'🧾 КВИТАНЦИЯ · заказ #{order_id}\n👤 {user_label(message.from_user)}'
     await bot.send_photo(ADMIN_ID,file_id,caption=caption,reply_markup=admin_order_keyboard(order_id))
     await state.clear()
 
@@ -191,9 +222,10 @@ async def pre_checkout(query: PreCheckoutQuery):
         order=await db.get_order_details(order_id)
         if not order or int(order['user_id'])!=int(query.from_user.id) or order['status']!='pending' or order['payment_type']!='stars':
             await query.answer(ok=False,error_message='Заказ не найден или уже обработан.'); return
-        if int(query.total_amount)!=int(order['price_stars']):
+        if int(query.total_amount)!=int(order['amount_stars'] or order['price_stars']):
             await query.answer(ok=False,error_message='Сумма счёта изменилась. Создай заказ заново.'); return
-        if not await db.get_free_key(order['cheat_id'],order['duration_days']):
+        stock=await db.keys_count(order['cheat_id'])
+        if int(stock.get(int(order['duration_days']),0))<int(order['quantity'] or 1):
             await query.answer(ok=False,error_message='Нет ключа на этот срок. Выбери другой товар или попробуй позже.'); return
         await query.answer(ok=True)
     except Exception:
@@ -226,9 +258,30 @@ async def successful_payment(message: Message):
         raise
 
 
+LOCK_ID=727002
+
+async def acquire_single_instance_lock():
+    """Только один бот на базу: второй экземпляр ждёт, а не вызывает TelegramConflictError."""
+    conn=await asyncpg.connect(os.getenv('DATABASE_URL'))
+    waited=False
+    while not await conn.fetchval('SELECT pg_try_advisory_lock($1)',LOCK_ID):
+        if not waited:
+            logging.warning('Другой экземпляр бота уже запущен — жду освобождения блокировки...')
+            waited=True
+        await asyncio.sleep(10)
+    logging.info('Бот получил блокировку единственного экземпляра')
+    return conn  # соединение держим открытым до конца работы
+
+
 async def main():
+    logging.basicConfig(level=logging.INFO)
     await db.init_db()
-    await dp.start_polling(bot)
+    lock_conn=await acquire_single_instance_lock()
+    try:
+        await bot.delete_webhook(drop_pending_updates=False)
+        await dp.start_polling(bot)
+    finally:
+        await lock_conn.close()
 
 if __name__=='__main__':
     asyncio.run(main())
