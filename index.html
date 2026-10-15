@@ -292,6 +292,9 @@ s.old{opacity:.55;margin-right:3px}
 .section-title{text-shadow:0 0 8px rgba(0,255,136,.2)}
 .duration-choice small{color:var(--accent2)}
 .inventory-code{white-space:pre-wrap;overflow-wrap:anywhere}
+.role-pill{position:fixed;left:8px;right:8px;bottom:76px;z-index:150;background:var(--stars);color:#000;font-size:6px;text-align:center;padding:9px 6px;border:2px solid #000;cursor:pointer;box-shadow:0 3px 0 rgba(0,0,0,.6)}
+.danger-btn{border-color:#ff3333!important;color:#ff6666!important}
+.news-body{white-space:pre-line;overflow-wrap:anywhere}
 .key-hint{font-size:6px;color:var(--text2);line-height:2;margin:8px 0}
 
 .bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:150;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));background:rgba(16,16,27,.96);border-top:2px solid var(--accent);backdrop-filter:blur(8px);transition:border-color .5s}
@@ -507,7 +510,9 @@ s.old{opacity:.55;margin-right:3px}
 const tg=window.Telegram?window.Telegram.WebApp:null;
 const initData=tg?tg.initData:'';
 let profileData=null,selectedDuration=1,selectedQty=1,profileOpened=false;
-const apiHeaders=()=>({'Content-Type':'application/json','X-Telegram-Init-Data':initData});
+const viewAsBuyer=()=>{try{return localStorage.getItem('pk_view_as')==='buyer';}catch(e){return false;}};
+const apiHeaders=()=>({'Content-Type':'application/json','X-Telegram-Init-Data':initData,...(viewAsBuyer()?{'X-View-As':'buyer'}:{})});
+function toggleRole(){try{viewAsBuyer()?localStorage.removeItem('pk_view_as'):localStorage.setItem('pk_view_as','buyer');}catch(e){}location.reload();}
 async function apiRequest(url,options={}){const r=await fetch(url,{...options,headers:{...apiHeaders(),...(options.headers||{})}});let d={};try{d=await r.json()}catch(e){}if(!r.ok)throw new Error(d.error||('Ошибка запроса ('+r.status+')'));return d;}
 if(tg){tg.ready();tg.expand();try{tg.setHeaderColor('#10101b');tg.setBackgroundColor('#07070d');}catch(e){}}
 
@@ -545,25 +550,39 @@ document.getElementById('scanlines').style.display=S.scanlines?'':'none';
 const Sound={
   ctx:null,get vol(){return S.sfxVol/100},
   init(){if(!this.ctx)try{this.ctx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}if(this.ctx&&this.ctx.state==='suspended')this.ctx.resume();},
-  tone(freq,dur=.08,type='square',vol=.06,delay=0,slide=0){if(!S.sfx||!this.ctx)return;const v=vol*this.vol,t=this.ctx.currentTime+delay;const o=this.ctx.createOscillator(),g=this.ctx.createGain();o.type=type;o.frequency.setValueAtTime(freq,t);if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(40,freq+slide),t+dur);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(g).connect(this.ctx.destination);o.start(t);o.stop(t+dur+.02);},
-  click(){this.tone(660,.05);},tab(){this.tone(520,.06);this.tone(780,.06,'square',.05,.05);},
-  open(){this.tone(300,.15,'square',.05,0,500);},close(){this.tone(700,.12,'square',.04,0,-450);},
-  buy(){[523,659,784,1047].forEach((f,i)=>this.tone(f,.1,'square',.06,i*.08));},
-  start(){[261,392,523,659,784,1047].forEach((f,i)=>this.tone(f,.09,'square',.06,i*.065));this.tone(2093,.3,'triangle',.05,.42);},
-  tick(){this.tone(1200,.02,'square',.025);},error(){this.tone(200,.2,'sawtooth',.05,0,-120);},
-  theme(){this.tone(440,.06);this.tone(554,.06,'square',.05,.07);this.tone(659,.1,'triangle',.05,.14);},
-  toggle(on){on?this.tone(660,.07):this.tone(400,.07,'sawtooth');}
+  /* мягкий тон: синус/треугольник, плавное нарастание, затухание и срез высоких частот */
+  tone(freq,dur=.12,type='sine',vol=.05,delay=0,slide=0){
+    if(!S.sfx||!this.ctx)return;
+    const v=Math.max(.0001,vol*this.vol*.9),t=this.ctx.currentTime+delay;
+    const o=this.ctx.createOscillator(),g=this.ctx.createGain(),f=this.ctx.createBiquadFilter();
+    o.type=type==='triangle'?'triangle':'sine';
+    o.frequency.setValueAtTime(freq,t);
+    if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(60,freq+slide),t+dur);
+    f.type='lowpass';f.frequency.value=2600;
+    g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(v,t+.012);g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    o.connect(f).connect(g).connect(this.ctx.destination);o.start(t);o.stop(t+dur+.03);
+  },
+  click(){this.tone(560,.07,'sine',.05,0,-60);},
+  tab(){this.tone(523,.09,'sine',.045);this.tone(659,.12,'sine',.04,.06);},
+  open(){this.tone(392,.2,'sine',.05,0,160);this.tone(587,.22,'triangle',.025,.05);},
+  close(){this.tone(523,.16,'sine',.045,0,-130);},
+  buy(){[523,659,784,1047].forEach((f,i)=>this.tone(f,.28,'triangle',.05,i*.09));},
+  start(){[392,523,659,784].forEach((f,i)=>this.tone(f,.35,'sine',.05,i*.1));this.tone(1047,.5,'triangle',.03,.4);},
+  tick(){this.tone(880,.03,'sine',.018);},
+  error(){this.tone(330,.2,'sine',.05);this.tone(262,.28,'sine',.045,.13);},
+  theme(){this.tone(523,.12,'sine',.045);this.tone(659,.12,'sine',.04,.08);this.tone(784,.2,'triangle',.035,.16);},
+  toggle(on){on?(this.tone(587,.08,'sine',.045),this.tone(784,.12,'sine',.04,.06)):(this.tone(523,.08,'sine',.04),this.tone(392,.12,'sine',.035,.06));}
 };
 
 const Music={
   ctx:null,nodes:[],playing:false,loopId:null,step:0,
   melody:[[392,196,0,330,392,0,440,392],[294,0,349,294,262,0,330,262],[392,196,0,330,392,0,523,440],[349,0,294,0,330,196,0,262]],
-  bass:[196,147,196,147,196,131,196,147],bpm:145,
+  bass:[196,147,196,147,196,131,196,147],bpm:112,
   init(){if(!this.ctx)try{this.ctx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}if(this.ctx&&this.ctx.state==='suspended')this.ctx.resume();},
   start(){this.init();if(!this.ctx||this.playing)return;this.playing=true;this.step=0;this._loop();},
   stop(){this.playing=false;clearTimeout(this.loopId);this.nodes.forEach(n=>{try{n.stop();}catch(e){}});this.nodes=[];},
-  _note(freq,start,dur,type='square',vol=.04){if(!this.ctx||!freq)return;const v=vol*(S.musicVol/100),t=this.ctx.currentTime+start;const o=this.ctx.createOscillator(),g=this.ctx.createGain();o.type=type;o.frequency.value=freq;g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.0001,t+dur*.9);o.connect(g).connect(this.ctx.destination);o.start(t);o.stop(t+dur);this.nodes.push(o);o.onended=()=>{const i=this.nodes.indexOf(o);if(i>-1)this.nodes.splice(i,1);};},
-  _loop(){if(!this.playing)return;const beatLen=60/this.bpm;const pat=this.melody[this.step%this.melody.length];pat.forEach((f,i)=>{if(f)this._note(f,i*beatLen,beatLen*.85,'square',.04);});this.bass.forEach((f,i)=>{if(f)this._note(f,i*beatLen,beatLen*.7,'triangle',.03);});for(let i=0;i<8;i++){if(i%2===1){const t=this.ctx.currentTime+i*beatLen;const buf=this.ctx.createBuffer(1,Math.floor(this.ctx.sampleRate*.04),this.ctx.sampleRate);const d=buf.getChannelData(0);for(let j=0;j<d.length;j++)d[j]=(Math.random()*2-1);const src=this.ctx.createBufferSource(),g=this.ctx.createGain();const f=this.ctx.createBiquadFilter();f.type='highpass';f.frequency.value=8000;g.gain.setValueAtTime(.015*(S.musicVol/100),t);g.gain.exponentialRampToValueAtTime(.0001,t+.035);src.buffer=buf;src.connect(f).connect(g).connect(this.ctx.destination);src.start(t);src.stop(t+.04);this.nodes.push(src);}}this.step++;this.loopId=setTimeout(()=>this._loop(),8*beatLen*1000-40);}
+  _note(freq,start,dur,type='triangle',vol=.03){if(!this.ctx||!freq)return;const v=Math.max(.0001,vol*(S.musicVol/100)),t=this.ctx.currentTime+start;const o=this.ctx.createOscillator(),g=this.ctx.createGain(),f=this.ctx.createBiquadFilter();o.type=type;o.frequency.value=freq;f.type='lowpass';f.frequency.value=1300;g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(v,t+.04);g.gain.exponentialRampToValueAtTime(.0001,t+dur*.95);o.connect(f).connect(g).connect(this.ctx.destination);o.start(t);o.stop(t+dur);this.nodes.push(o);o.onended=()=>{const i=this.nodes.indexOf(o);if(i>-1)this.nodes.splice(i,1);};},
+  _loop(){if(!this.playing)return;const beatLen=60/this.bpm;const pat=this.melody[this.step%this.melody.length];pat.forEach((f,i)=>{if(f)this._note(f,i*beatLen,beatLen*.9,'triangle',.028);});this.bass.forEach((f,i)=>{if(f)this._note(f,i*beatLen,beatLen*.85,'sine',.035);});for(let i=0;i<8;i++){if(i%2===1){const t=this.ctx.currentTime+i*beatLen;const buf=this.ctx.createBuffer(1,Math.floor(this.ctx.sampleRate*.04),this.ctx.sampleRate);const d=buf.getChannelData(0);for(let j=0;j<d.length;j++)d[j]=(Math.random()*2-1);const src=this.ctx.createBufferSource(),g=this.ctx.createGain();const f=this.ctx.createBiquadFilter();f.type='highpass';f.frequency.value=8000;g.gain.setValueAtTime(Math.max(.0001,.003*(S.musicVol/100)),t);g.gain.exponentialRampToValueAtTime(.0001,t+.035);src.buffer=buf;src.connect(f).connect(g).connect(this.ctx.destination);src.start(t);src.stop(t+.04);this.nodes.push(src);}}this.step++;this.loopId=setTimeout(()=>this._loop(),8*beatLen*1000-40);}
 };
 
 function haptic(type='light'){try{tg&&tg.HapticFeedback.impactOccurred(type);}catch(e){}}
@@ -695,7 +714,9 @@ function purchasesCount(){return Number(profileData?.purchases_count??(profileDa
 function rankOf(){const n=purchasesCount();let r=RANKS[0];for(const x of RANKS)if(n>=x.min)r=x;return r;}
 function nextRank(){const n=purchasesCount();return RANKS.find(x=>x.min>n)||null;}
 const discPct=(c,q)=>Number((c.qty_discounts&&c.qty_discounts[q])??QTY_DISC[q]??0)+rankOf().d;
-function calcTotal(c,q){const pct=discPct(c,q),f=v=>Math.round(Number(v)*q*(1-pct/100));return{pct,uah:f(c.price_rub),stars:Math.max(1,f(c.price_stars))};}
+const priceFor=(c,d)=>{const pr=(c.prices||{})[String(d)];return pr?{uah:pr.uah,stars:pr.stars,old:pr.old_uah||0}:{uah:c.price_rub,stars:c.price_stars,old:c.old_price_rub||0};};
+const priceVaries=c=>{const ds=c.durations||[];return ds.length>1&&new Set(ds.map(d=>priceFor(c,d).uah)).size>1;};
+function calcTotal(c,q,d){const pr=priceFor(c,d||selectedDuration),pct=discPct(c,q),f=v=>Math.round(Number(v)*q*(1-pct/100));return{pct,uah:f(pr.uah),stars:Math.max(1,f(pr.stars))};}
 const badgesHtml=c=>(c.badges||[]).filter(b=>BADGES[b]).map(b=>`<span class="badge b-${b}">${BADGES[b]}</span>`).join('');
 
 function cardHtml(c,i){
@@ -711,7 +732,7 @@ ${meta?`<div class="card-meta">${meta}</div>`:''}
 ${rt?`<div class="card-rating">★ ${rt.avg.toFixed(1)} <span>(${rt.n})</span></div>`:''}
 <div class="card-desc">${esc(c.description)}</div>
 ${tot===null?'':`<div class="card-stock${out?' out':''}">${out?'⛔ НЕТ В НАЛИЧИИ':'📦 ОСТАЛОСЬ: '+tot}</div>`}
-<div class="card-prices"><div class="price-tag price-uah">💳 ${oldU?`<s class="old">${esc(c.old_price_rub)}</s>`:''}${esc(c.price_rub)} UAH</div><div class="price-tag price-stars">⭐ ${oldS?`<s class="old">${esc(c.old_price_stars)}</s>`:''}${esc(c.price_stars)} STARS</div></div>
+<div class="card-prices"><div class="price-tag price-uah">💳 ${priceVaries(c)?'ОТ ':''}${oldU?`<s class="old">${esc(c.old_price_rub)}</s>`:''}${esc(c.price_rub)} UAH</div><div class="price-tag price-stars">⭐ ${priceVaries(c)?'ОТ ':''}${oldS?`<s class="old">${esc(c.old_price_stars)}</s>`:''}${esc(c.price_stars)} STARS</div></div>
 <div class="card-arrow">▸</div>
 </div>`;
 }
@@ -885,8 +906,10 @@ function renderProfile(){
   const rk=rankOf(),nx=nextRank(),n=purchasesCount(),pct=nx?Math.min(100,Math.round((n-rk.min)/(nx.min-rk.min)*100)):100;
   const refLink=`https://t.me/${BOT_USERNAME}?start=ref_${u.id||''}`;
   document.getElementById('profile-content').innerHTML=`<div class="profile-card">${avatar}<div><div class="profile-name">${esc(label)}</div><div class="profile-line">${esc(userName)}</div><div class="profile-line">TELEGRAM ID: ${esc(u.id||'—')}</div></div></div>
+${profileData.banned?'<div class="rank-card" style="border-color:#ff3333"><div class="rank-name" style="color:#ff6666;font-size:8px">🚫 АККАУНТ ЗАБЛОКИРОВАН</div><div class="key-hint">ПОКУПКИ, ОТЗЫВЫ И ПРОБНЫЕ КЛЮЧИ НЕДОСТУПНЫ. ЕСЛИ ЭТО ОШИБКА — НАПИШИ В ПОДДЕРЖКУ.</div></div>':''}
 <div class="rank-card"><div class="rank-top"><span class="rank-name">${rk.i} ${rk.n}</span><span class="rank-disc">СКИДКА −${rk.d}%</span></div><div class="rank-bar"><div style="width:${pct}%"></div></div><div class="profile-line">ПОКУПОК: ${n}${nx?` · ДО «${nx.n}» (−${nx.d}%): ${nx.min-n}`:' · МАКСИМАЛЬНЫЙ РАНГ'}</div></div>
 <div class="section-title">🔑 МОЙ ИНВЕНТАРЬ <span class="count">${inv.length} КЛЮЧЕЙ</span></div>
+${inv.length?`<div class="inv-actions">${expired.length?`<button type="button" class="copy-btn danger-btn" id="inv-clear-expired">🗑 ОЧИСТИТЬ ЗАВЕРШЁННЫЕ (${expired.length})</button>`:''}<button type="button" class="copy-btn danger-btn" id="inv-clear-all">🗑 ОЧИСТИТЬ ВСЁ</button></div>`:''}
 ${active.length?`<div class="about-title">🟢 АКТИВНЫЕ</div>${active.map(x=>inventoryHtml(x,true)).join('')}`:''}
 ${expired.length?`<div class="about-title" style="color:var(--text2);margin-top:16px">⚫ ЗАВЕРШЁННЫЕ</div>${expired.map(x=>inventoryHtml(x,false)).join('')}`:''}
 ${!inv.length?'<div class="empty"><div class="empty-icon">📦</div>ПОКА НЕТ ПОКУПОК</div>':''}
@@ -896,18 +919,29 @@ ${(profileData.orders||[]).some(x=>x.status==='pending')?`<div class="section-ti
 <div class="section-title">🆘 ПОДДЕРЖКА</div>
 <div class="inv-actions"><button type="button" class="copy-btn" id="sup-tg">💬 ЧАТ В TELEGRAM</button><button type="button" class="copy-btn" id="sup-new">🎫 НОВЫЙ ТИКЕТ</button></div>
 <div id="tickets-box"><div class="profile-line">ЗАГРУЗКА ТИКЕТОВ...</div></div>
+${profileData.real_admin?`<div class="rank-card" style="border-color:${profileData.view_as==='buyer'?'var(--stars)':'var(--accent2)'}"><div class="rank-top"><span class="rank-name">🎭 РОЛЬ: ${profileData.view_as==='buyer'?'ПОКУПАТЕЛЬ':'АДМИН'}</span></div><div class="key-hint">${profileData.view_as==='buyer'?'ТЫ ВИДИШЬ ПРИЛОЖЕНИЕ И СЕРВЕР КАК ОБЫЧНЫЙ ПОКУПАТЕЛЬ: АДМИН-ФУНКЦИЙ НЕТ, ВСЕ ПРАВИЛА (ОТЗЫВЫ ТОЛЬКО ПОСЛЕ ПОКУПКИ И Т.Д.) РАБОТАЮТ КАК У ВСЕХ.':'ПЕРЕКЛЮЧИСЬ НА ПОКУПАТЕЛЯ, ЧТОБЫ ПРОВЕРИТЬ, КАК ВСЁ РАБОТАЕТ У ОБЫЧНЫХ ПОЛЬЗОВАТЕЛЕЙ.'}</div><button class="profile-action" id="role-toggle">${profileData.view_as==='buyer'?'👑 ВЕРНУТЬСЯ В АДМИНА':'👤 ПЕРЕКЛЮЧИТЬСЯ НА ПОКУПАТЕЛЯ'}</button></div>`:''}
 ${profileData.is_admin?'<button class="profile-action" id="open-admin-panel">👑 ADMIN PANEL</button>':''}`;
   document.querySelectorAll('[data-copy-key]').forEach(b=>b.onclick=()=>copyText(b.dataset.copyKey,'КЛЮЧ СКОПИРОВАН'));
   document.querySelectorAll('[data-instr]').forEach(b=>b.onclick=()=>{const x=inv[Number(b.dataset.instr)],p=prodOf(x),box=document.getElementById('instr-'+b.dataset.instr);box.textContent=box.textContent?'':String(x.instruction||p?.instruction||'');Sound.click();});
   document.querySelectorAll('[data-extend]').forEach(b=>b.onclick=()=>{const x=inv[Number(b.dataset.extend)],p=prodOf(x);if(p)openCheat(Number(p.id),Number(x.duration_days));});
   document.querySelectorAll('[data-review]').forEach(b=>b.onclick=()=>{const p=prodOf(inv[Number(b.dataset.review)]);if(p)openReviewForm(p);});
+  document.querySelectorAll('[data-inv-del]').forEach(b=>b.onclick=()=>{const x=inv[Number(b.dataset.invDel)];const live=new Date(x.expires_at).getTime()>Date.now();clearInventory({order_id:x.order_id},live?'Ключ ЕЩЁ ДЕЙСТВУЕТ. Он пропадёт из профиля — сначала скопируй его. Удалить?':'Удалить этот ключ из профиля?');});
+  const ce=document.getElementById('inv-clear-expired');if(ce)ce.onclick=()=>clearInventory({scope:'expired'},'Удалить все завершённые ключи ('+expired.length+') из профиля?');
+  const ca=document.getElementById('inv-clear-all');if(ca)ca.onclick=()=>clearInventory({scope:'all'},active.length?`Удалить ВСЕ ключи, включая ${active.length} действующих? Скопируй их заранее — вернуть нельзя.`:'Удалить все ключи из профиля?');
   document.getElementById('ref-copy').onclick=()=>copyText(refLink,'ССЫЛКА СКОПИРОВАНА');
   document.getElementById('ref-share').onclick=()=>openUrl('https://t.me/share/url?url='+encodeURIComponent(refLink)+'&text='+encodeURIComponent('Читы для мобильных игр — PIXEL KEY 🎮'));
   document.getElementById('sup-tg').onclick=openSupport;
   document.getElementById('sup-new').onclick=openNewTicket;
   apiRequest('/api/referrals').then(r=>{const el=document.getElementById('ref-stats');if(el)el.textContent=`ПРИГЛАШЕНО: ${Number(r.count||0)} · БОНУС: ${esc(r.bonus??0)}`;}).catch(()=>{});
   loadMyTickets();
+  const rt=document.getElementById('role-toggle');if(rt)rt.onclick=toggleRole;
   if(profileData.is_admin)document.getElementById('open-admin-panel').onclick=openAdminPanel;
+}
+
+async function clearInventory(body,question){
+  if(!confirm(question))return;
+  try{const r=await apiRequest('/api/inventory/clear',{method:'POST',body:JSON.stringify(body)});showNotif('🗑 УДАЛЕНО: '+Number(r.cleared||0));Sound.close();await loadProfile();}
+  catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());Sound.error();}
 }
 
 function inventoryHtml(x,isActive){
@@ -915,7 +949,7 @@ function inventoryHtml(x,isActive){
   const instr=String(x.instruction||p?.instruction||'').trim(),soon=isActive&&isExpiringSoon(x);
   return `<div class="inventory-card ${isActive?'active-key':'expired-key'}"><span class="inventory-state">${isActive?'АКТИВЕН':'ЗАВЕРШЁН'}</span><b>${esc(x.name||'ТОВАР')}</b><br>${esc(x.game||'')} · ${durationText(Number(x.duration_days))}<div class="inventory-code">${esc(x.key_given)}</div><button type="button" class="copy-btn" data-copy-key="${esc(x.key_given)}">КОПИРОВАТЬ КЛЮЧ</button><br>${isActive?`ОСТАЛОСЬ: ${days} ДН. ${hours} Ч.`:`ЗАКОНЧИЛСЯ: ${new Date(x.expires_at).toLocaleString('ru-RU')}`}
 ${soon?'<div class="expire-warn">⏰ СКОРО ЗАКОНЧИТСЯ — ПРОДЛИ!</div>':''}
-<div class="inv-actions">${instr?`<button type="button" class="copy-btn" data-instr="${idx}">📖 ИНСТРУКЦИЯ</button>`:''}${p?`<button type="button" class="copy-btn" data-extend="${idx}">🔁 ПРОДЛИТЬ</button><button type="button" class="copy-btn" data-review="${idx}">⭐ ОТЗЫВ</button>`:''}</div><div class="inv-instr" id="instr-${idx}"></div></div>`;
+<div class="inv-actions">${instr?`<button type="button" class="copy-btn" data-instr="${idx}">📖 ИНСТРУКЦИЯ</button>`:''}${p?`<button type="button" class="copy-btn" data-extend="${idx}">🔁 ПРОДЛИТЬ</button><button type="button" class="copy-btn" data-review="${idx}">⭐ ОТЗЫВ</button>`:''}<button type="button" class="copy-btn danger-btn" data-inv-del="${idx}">🗑 УДАЛИТЬ</button></div><div class="inv-instr" id="instr-${idx}"></div></div>`;
 }
 
 function openReviewForm(p,fromModal){
@@ -979,7 +1013,7 @@ function renderCheatModal(){
   const gallery=shots.length?`<div class="gallery">${shots.map(u=>`<img src="${esc(u)}" data-zoom="${esc(u)}" alt="">`).join('')}</div>`:'';
   const features=(c.features||[]).length?`<div class="modal-info-row"><span class="modal-info-label">⚙️ ФУНКЦИИ</span><span class="modal-info-value">${c.features.map(esc).join('<br>')}</span></div>`:'';
   const allRevs=reviewsCache.filter(r=>Number(r.product_id)===Number(c.id)).sort(byDateDesc),revs=showAllReviews?allRevs:allRevs.slice(0,5),adm=isAdminUser(),bought=hasBought(c);
-  const oldU=Number(c.old_price_rub)>Number(c.price_rub);
+  const pr=priceFor(c,selectedDuration),oldU=Number(pr.old)>Number(pr.uah);
   const noKeyText=down?'🔴 ЧИТ НЕ РАБОТАЕТ — ПОКУПКА ЗАКРЫТА':'⚠️ НЕТ КЛЮЧЕЙ НА ЭТОТ СРОК';
   body.innerHTML=`${gallery}
 <div class="badges-row">${badgesHtml(c)}${st?`<span class="badge b-st-${c.status}">${st[0]} ${st[1]}</span>`:''}${rk?`<span class="badge b-risk-${c.risk}">${rk[0]} ${rk[1]}</span>`:''}</div>
@@ -994,7 +1028,7 @@ ${c.video_url?'<button type="button" class="copy-btn" id="video-btn" style="marg
 <div class="duration-choice-grid" id="duration-options">${ds.map(d=>{const amount=Number(stock[String(d)]||0);return`<button type="button" class="duration-choice ${d===selectedDuration?'active':''} ${amount?'':'out'}" data-duration="${d}">${durationText(d)}<small>${amount?`${amount} КЛ.`:'НЕТ'}</small></button>`;}).join('')}</div>
 <div class="buy-title">▸ КОЛИЧЕСТВО КЛЮЧЕЙ:</div>
 <div class="qty-bar"><div class="qty-btns" id="qty-options">${[1,3,5].map(q=>`<button type="button" class="qty-btn ${selectedQty===q?'active':''}" data-qty="${q}">× ${q}${discPct(c,q)>rankOf().d?` −${discPct(c,q)-rankOf().d}%`:''}</button>`).join('')}</div></div>
-<div class="modal-info-row"><span class="modal-info-label">💳 ЦЕНА ЗА КЛЮЧ</span><span class="modal-info-value" style="color:var(--accent2)">${oldU?`<s class="old">${esc(c.old_price_rub)}</s>`:''}${esc(c.price_rub)} UAH</span></div>
+<div class="modal-info-row"><span class="modal-info-label">💳 ЦЕНА ЗА КЛЮЧ</span><span class="modal-info-value" style="color:var(--accent2)">${oldU?`<s class="old">${esc(pr.old)}</s>`:''}${esc(pr.uah)} UAH</span></div>
 ${t.pct?`<div class="modal-info-row"><span class="modal-info-label">🏷 СКИДКА (КОЛ-ВО + РАНГ)</span><span class="modal-info-value" style="color:var(--accent)">−${t.pct}%</span></div>`:''}
 <div class="modal-info-row"><span class="modal-info-label">💳 ИТОГО</span><span class="modal-info-value" style="color:var(--accent2)">${t.uah} UAH</span></div>
 <div class="modal-info-row"><span class="modal-info-label">⭐ ИТОГО STARS</span><span class="modal-info-value" style="color:var(--stars)">${t.stars} ⭐</span></div>
@@ -1112,6 +1146,7 @@ function adminShell(section){
 <button data-admin="stats" class="${section==='stats'?'active':''}">📊 СТАТ.</button>
 <button data-admin="tickets" class="${section==='tickets'?'active':''}">🎫 ТИКЕТЫ</button>
 <button data-admin="promos" class="${section==='promos'?'active':''}">🏷 ПРОМО</button>
+<button data-admin="clients" class="${section==='clients'?'active':''}">👥 КЛИЕНТЫ</button>
 </div><div id="admin-content"></div>`;
   document.querySelectorAll('.admin-tabs button').forEach(b=>b.onclick=()=>renderAdmin(b.dataset.admin));
 }
@@ -1140,17 +1175,32 @@ async function renderAdmin(section){
 <textarea id="key-values" placeholder="key1&#10;key2&#10;key3" style="min-height:120px"></textarea>
 <div class="key-hint">ПУСТЫЕ СТРОКИ И ПОВТОРЫ УБИРАЮТСЯ АВТОМАТИЧЕСКИ</div>
 <button class="profile-action" id="add-keys" disabled>ДОБАВИТЬ КЛЮЧИ</button>
-</div>`;
+</div><div id="key-stock"></div>`;
     const sel=document.getElementById('key-product'),ta=document.getElementById('key-values'),cnt=document.getElementById('key-count'),btn=document.getElementById('add-keys');
     let dur=1;
     const parse=()=>[...new Set(ta.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean))];
     const fill=()=>{
       const p=list.find(x=>String(x.id)===sel.value)||list[0];
       document.getElementById('key-duration-options').innerHTML=[1,7,30].map(d=>{const n=Number(p?.stock?.[String(d)]||0);return `<button type="button" class="duration-choice preset ${d===dur?'active':''} ${n?'':'out'}" data-key-duration="${d}">${durationText(d)}<small>В НАЛИЧИИ: ${n}</small></button>`;}).join('');
-      document.querySelectorAll('[data-key-duration]').forEach(b=>b.onclick=()=>{dur=Number(b.dataset.keyDuration);Sound.click();fill();});
+      document.querySelectorAll('[data-key-duration]').forEach(b=>b.onclick=()=>{dur=Number(b.dataset.keyDuration);Sound.click();fill();drawStock();});
     };
     const upd=()=>{const n=parse().length;cnt.textContent=n;btn.disabled=!n;};
-    sel.onchange=fill;ta.oninput=upd;fill();
+    const drawStock=async()=>{
+      const box=document.getElementById('key-stock');if(!box)return;
+      box.innerHTML='<div class="empty">Загрузка склада...</div>';
+      try{
+        const list=await apiRequest(`/api/admin/products/${sel.value}/keys?duration=${dur}`);
+        box.innerHTML=`<div class="section-title" style="margin-top:16px">📦 СКЛАД: СВОБОДНЫЕ КЛЮЧИ <span class="count">${list.length}</span></div>
+${list.length?`<button type="button" class="copy-btn danger-btn" id="stock-clear">🗑 УДАЛИТЬ ВСЕ СВОБОДНЫЕ (${list.length})</button>`:'<div class="key-hint">НА ЭТОТ СРОК СВОБОДНЫХ КЛЮЧЕЙ НЕТ</div>'}
+${list.map(k=>`<div class="admin-row" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span style="overflow-wrap:anywhere">${esc(k.key)}</span><button type="button" class="copy-btn danger-btn" style="margin:0;flex-shrink:0" data-del-key="${k.id}">✕</button></div>`).join('')}
+<div class="key-hint">ВЫДАННЫЕ ПОКУПАТЕЛЯМ КЛЮЧИ ЗДЕСЬ НЕ ПОКАЗЫВАЮТСЯ И НЕ УДАЛЯЮТСЯ</div>`;
+        const refresh=async()=>{adminProducts=await apiRequest('/api/admin/products');fill();drawStock();};
+        box.querySelectorAll('[data-del-key]').forEach(b=>b.onclick=async()=>{try{await apiRequest(`/api/admin/keys/${b.dataset.delKey}`,{method:'DELETE'});Sound.close();refresh();}catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());}});
+        const cl=document.getElementById('stock-clear');
+        if(cl)cl.onclick=async()=>{if(!confirm('Удалить ВСЕ свободные ключи ('+list.length+') на этот срок? Выданные покупателям не пострадают.'))return;try{const r=await apiRequest(`/api/admin/products/${sel.value}/keys/clear`,{method:'POST',body:JSON.stringify({duration_days:dur})});showNotif('🗑 УДАЛЕНО: '+Number(r.deleted||0));refresh();}catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());}};
+      }catch(e){box.innerHTML=`<div class="empty">${esc(e.message)}</div>`;}
+    };
+    sel.onchange=()=>{fill();drawStock();};ta.oninput=upd;fill();drawStock();
     btn.onclick=async()=>{
       const keys=parse();if(!keys.length)return;
       btn.disabled=true;btn.textContent='ДОБАВЛЯЮ...';
@@ -1158,7 +1208,7 @@ async function renderAdmin(section){
         const r=await apiRequest(`/api/admin/products/${sel.value}/keys`,{method:'POST',body:JSON.stringify({duration_days:dur,keys:keys.join('\n')})});
         ta.value='';upd();Sound.buy();
         showNotif(`✅ ДОБАВЛЕНО: ${r.added}${r.skipped?` · ПРОПУЩЕНО: ${r.skipped}`:''}`);
-        adminProducts=await apiRequest('/api/admin/products');fill();
+        adminProducts=await apiRequest('/api/admin/products');fill();drawStock();
       }catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());Sound.error();}
       btn.textContent='ДОБАВИТЬ КЛЮЧИ';upd();
     };
@@ -1181,8 +1231,11 @@ async function loadAdminNews(){
   try{
     const data=await apiRequest('/api/news');
     if(!data.length){box.innerHTML='<div class="empty">Новостей нет</div>';return;}
-    box.innerHTML=data.map(n=>`<div class="admin-row">${n.pinned?'📌 ':''}${n.title?`<b>${esc(n.title)}</b><br>`:''}${esc((n.body||'').slice(0,80))}...<div class="admin-actions"><button class="btn btn-card" data-del-news="${n.id}">УДАЛИТЬ</button></div></div>`).join('');
-    box.querySelectorAll('[data-del-news]').forEach(b=>b.onclick=async()=>{try{await apiRequest(`/api/admin/news/${b.dataset.delNews}`,{method:'DELETE'});loadAdminNews();loadHomeNews();}catch(e){showNotif('⚠️ '+e.message);}});
+    box.innerHTML=data.map(n=>`<div class="admin-row">${n.pinned?'📌 ':''}${n.title?`<b>${esc(n.title)}</b><br>`:''}${esc((n.body||'').slice(0,120))}${(n.body||'').length>120?'…':''}<div class="admin-actions"><button class="btn btn-stars" data-pin-news="${n.id}">${n.pinned?'ОТКРЕПИТЬ':'📌 ЗАКРЕПИТЬ'}</button><button class="btn btn-stars" data-edit-news="${n.id}">✏️ ИЗМЕНИТЬ</button><button class="btn btn-card" data-del-news="${n.id}">УДАЛИТЬ</button></div></div>`).join('');
+    const find=id=>data.find(x=>Number(x.id)===Number(id));
+    box.querySelectorAll('[data-pin-news]').forEach(b=>b.onclick=async()=>{const n=find(b.dataset.pinNews);try{await apiRequest(`/api/admin/news/${n.id}`,{method:'PUT',body:JSON.stringify({title:n.title||'',body:n.body,pinned:!n.pinned})});showNotif(n.pinned?'📌 ОТКРЕПЛЕНО':'📌 ЗАКРЕПЛЕНО');loadAdminNews();loadHomeNews();}catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());}});
+    box.querySelectorAll('[data-edit-news]').forEach(b=>b.onclick=()=>{const n=find(b.dataset.editNews);if(n&&window.__newsEdit)window.__newsEdit(n);});
+    box.querySelectorAll('[data-del-news]').forEach(b=>b.onclick=async()=>{if(!confirm('Удалить новость?'))return;try{await apiRequest(`/api/admin/news/${b.dataset.delNews}`,{method:'DELETE'});loadAdminNews();loadHomeNews();}catch(e){showNotif('⚠️ '+e.message);}});
   }catch(e){box.innerHTML='<div class="empty">Ошибка загрузки</div>';}
 }
 
@@ -1207,18 +1260,38 @@ ${games.length?`<div class="chips">${games.map(g=>`<button type="button" class="
 }
 
 async function renderAdminExtra(section,out){
-  /* ---- НОВОСТИ (по шаблону) ---- */
+  /* ---- НОВОСТИ: шаблон или своё сообщение, изменение и закрепление ---- */
   if(section==='news'){
-    out.innerHTML=`<div class="admin-form"><div id="news-tpl"></div>
+    out.innerHTML=`<div class="admin-form">
+<div class="chips" id="news-mode"><button type="button" class="chip active" data-mode="tpl">📋 ПО ШАБЛОНУ</button><button type="button" class="chip" data-mode="custom">✍️ СВОЁ СООБЩЕНИЕ</button></div>
+<div id="news-edit-hint" class="key-hint" style="display:none;color:var(--stars)"></div>
+<div id="news-tpl"></div>
+<div id="news-custom" style="display:none"><label>ЗАГОЛОВОК (НЕОБЯЗАТЕЛЬНО)</label><input id="news-title" maxlength="120" placeholder="Например: Акция выходного дня"><label>ТЕКСТ НОВОСТИ</label><textarea id="news-body" maxlength="1000" style="min-height:130px" placeholder="Пиши что угодно — абзацы сохранятся"></textarea><div class="key-hint">ДО 1000 СИМВОЛОВ · <span id="news-left">1000</span> ОСТАЛОСЬ</div></div>
 <div style="display:flex;align-items:center;gap:10px;margin:10px 0;font-size:6px;color:var(--text2)"><div class="toggle" id="news-pinned-toggle"></div><span>ЗАКРЕПИТЬ ВВЕРХУ</span></div>
-<button class="profile-action" id="post-news">📰 ОПУБЛИКОВАТЬ В НОВОСТЯХ</button></div>
+<button class="profile-action" id="post-news">📰 ОПУБЛИКОВАТЬ В НОВОСТЯХ</button>
+<button class="profile-action" id="news-cancel" style="display:none;background:var(--bg3);color:var(--text);box-shadow:none">ОТМЕНА ИЗМЕНЕНИЯ</button></div>
 <div class="section-title" style="margin-top:14px">ТЕКУЩИЕ НОВОСТИ</div><div id="news-admin-list"><div class="empty">Загрузка...</div></div>`;
-    const get=tplPicker(document.getElementById('news-tpl'));let pinned=false;
-    const tg2=document.getElementById('news-pinned-toggle');tg2.onclick=()=>{pinned=!pinned;tg2.classList.toggle('on',pinned);};
-    document.getElementById('post-news').onclick=async()=>{
-      const m=get();if(!m.game){showNotif('⚠️ ВВЕДИ НАЗВАНИЕ ИГРЫ');return;}
-      try{await apiRequest('/api/admin/news',{method:'POST',body:JSON.stringify({title:m.title,body:m.text,pinned})});showNotif('✅ НОВОСТЬ ОПУБЛИКОВАНА');Sound.buy();loadAdminNews();loadHomeNews();}
-      catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());Sound.error();}
+    const get=tplPicker(document.getElementById('news-tpl'));let pinned=false,mode='tpl',editingId=null;
+    const $=id=>document.getElementById(id);
+    const tg2=$('news-pinned-toggle'),bodyEl=$('news-body');
+    const setPinned=v=>{pinned=!!v;tg2.classList.toggle('on',pinned);};
+    tg2.onclick=()=>setPinned(!pinned);
+    bodyEl.oninput=()=>{$('news-left').textContent=1000-bodyEl.value.length;};
+    const setMode=m=>{mode=m;out.querySelectorAll('#news-mode .chip').forEach(c=>c.classList.toggle('active',c.dataset.mode===m));$('news-tpl').style.display=m==='tpl'?'':'none';$('news-custom').style.display=m==='custom'?'':'none';};
+    out.querySelectorAll('#news-mode [data-mode]').forEach(b=>b.onclick=()=>{Sound.click();setMode(b.dataset.mode);});
+    const resetForm=()=>{editingId=null;bodyEl.value='';$('news-title').value='';$('news-left').textContent=1000;setPinned(false);$('post-news').textContent='📰 ОПУБЛИКОВАТЬ В НОВОСТЯХ';$('news-cancel').style.display='none';$('news-edit-hint').style.display='none';};
+    window.__newsEdit=n=>{editingId=n.id;setMode('custom');$('news-title').value=n.title||'';bodyEl.value=n.body||'';$('news-left').textContent=1000-bodyEl.value.length;setPinned(n.pinned);$('post-news').textContent='💾 СОХРАНИТЬ ИЗМЕНЕНИЯ';$('news-cancel').style.display='block';const h=$('news-edit-hint');h.style.display='block';h.textContent='✏️ РЕДАКТИРУЕШЬ НОВОСТЬ #'+n.id;$('news-body').scrollIntoView({behavior:'smooth',block:'center'});};
+    $('news-cancel').onclick=resetForm;
+    $('post-news').onclick=async()=>{
+      let payload;
+      if(mode==='tpl'){const m=get();if(!m.game){showNotif('⚠️ ВВЕДИ НАЗВАНИЕ ИГРЫ');return;}payload={title:m.title,body:m.text,pinned};}
+      else{const body=bodyEl.value.trim();if(!body){showNotif('⚠️ НАПИШИ ТЕКСТ НОВОСТИ');return;}payload={title:$('news-title').value.trim(),body,pinned};}
+      try{
+        await apiRequest(editingId?`/api/admin/news/${editingId}`:'/api/admin/news',{method:editingId?'PUT':'POST',body:JSON.stringify(payload)});
+        showNotif(editingId?'✅ НОВОСТЬ ИЗМЕНЕНА':'✅ НОВОСТЬ ОПУБЛИКОВАНА');Sound.buy();
+        if(mode==='custom'||editingId)resetForm();
+        loadAdminNews();loadHomeNews();
+      }catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());Sound.error();}
     };
     loadAdminNews();return true;
   }
@@ -1297,6 +1370,37 @@ async function renderAdminExtra(section,out){
     }catch(e){out.innerHTML=`<div class="empty">${esc(e.message)}</div>`;}
     return true;
   }
+  /* ---- КЛИЕНТЫ ---- */
+  if(section==='clients'){
+    out.innerHTML=`<input class="search" id="cl-search" placeholder="🔍 @username, имя или Telegram ID" autocomplete="off"><div id="cl-list"><div class="empty">Загрузка...</div></div>`;
+    const clientName=u=>u.username?'@'+u.username:(u.first_name||'без имени');
+    const loadList=async(q='')=>{
+      const box=document.getElementById('cl-list');if(!box)return;
+      try{
+        const list=await apiRequest('/api/admin/clients?q='+encodeURIComponent(q));
+        box.innerHTML=list.map(u=>`<div class="admin-row" data-cl="${u.user_id}" style="cursor:pointer"><b>${esc(clientName(u))}</b>${u.banned?' <span class="badge b-st-down">🚫 БАН</span>':''}<br>ID ${esc(u.user_id)} · ПОКУПОК: ${Number(u.purchases)} · ПОТРАЧЕНО: ${Number(u.spent)} UAH<br><span class="news-date">БЫЛ: ${u.last_seen?new Date(u.last_seen).toLocaleString('ru-RU'):'—'}</span></div>`).join('')||'<div class="empty">КЛИЕНТОВ НЕ НАЙДЕНО</div>';
+        box.querySelectorAll('[data-cl]').forEach(el=>el.onclick=()=>openClient(Number(el.dataset.cl)));
+      }catch(e){box.innerHTML=`<div class="empty">${esc(e.message)}</div>`;}
+    };
+    const openClient=async uid=>{
+      out.innerHTML='<div class="empty">Загрузка...</div>';
+      try{
+        const d=await apiRequest('/api/admin/clients/'+uid),u=d.user,orders=d.orders||[];
+        const st={pending:'⏳ ОЖИДАЕТ',confirmed:'✅ ПОДТВЕРЖДЁН',rejected:'❌ ОТКЛОНЁН'};
+        const conf=orders.filter(o=>o.status==='confirmed'&&o.payment_type!=='trial');
+        out.innerHTML=`<button type="button" class="copy-btn" id="cl-back">← К СПИСКУ КЛИЕНТОВ</button>
+<div class="profile-card" style="margin-top:10px"><div class="profile-avatar">${esc((u.first_name||u.username||'?').slice(0,1).toUpperCase())}</div><div><div class="profile-name">${esc(clientName(u))}</div><div class="profile-line">TELEGRAM ID: ${esc(u.user_id)}</div><div class="profile-line">ПОКУПОК: ${conf.length}${u.banned?' · 🚫 ЗАБЛОКИРОВАН':''}</div><div class="profile-line">В ПРИЛОЖЕНИИ С: ${u.created_at?new Date(u.created_at).toLocaleDateString('ru-RU'):'—'}</div></div></div>
+<div class="inv-actions"><button type="button" class="copy-btn ${u.banned?'':'danger-btn'}" id="cl-ban">${u.banned?'✅ РАЗБЛОКИРОВАТЬ':'🚫 ЗАБЛОКИРОВАТЬ'}</button><button type="button" class="copy-btn danger-btn" id="cl-del">🗑 УДАЛИТЬ ПРОФИЛЬ</button></div>
+<div class="section-title">🧾 ИСТОРИЯ ПОКУПОК <span class="count">${orders.length}</span></div>
+${orders.map(o=>`<div class="admin-row"><b>#${o.id} · ${esc(o.name||'ТОВАР')}</b><br>${durationText(Number(o.duration_days))} × ${Number(o.quantity||1)} · ${o.payment_type==='stars'?'⭐ '+Number(o.amount_stars||o.price_stars||0)+' STARS':o.payment_type==='trial'?'🎁 ПРОБНЫЙ':'💳 '+Number(o.amount_uah||o.price_rub||0)+' UAH'}<br>${st[o.status]||esc(o.status)} · ${new Date(o.created_at).toLocaleString('ru-RU')}${o.key_given?`<div class="inventory-code">${esc(o.key_given)}</div>`:''}</div>`).join('')||'<div class="empty">ПОКУПОК НЕТ</div>'}`;
+        document.getElementById('cl-back').onclick=()=>renderAdmin('clients');
+        document.getElementById('cl-ban').onclick=async()=>{const to=!u.banned;if(!confirm(to?'Заблокировать клиента? Он не сможет покупать, оставлять отзывы и брать пробные ключи.':'Разблокировать клиента?'))return;try{await apiRequest(`/api/admin/clients/${uid}/ban`,{method:'POST',body:JSON.stringify({banned:to})});showNotif(to?'🚫 ЗАБЛОКИРОВАН':'✅ РАЗБЛОКИРОВАН');openClient(uid);}catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());}};
+        document.getElementById('cl-del').onclick=async()=>{if(!confirm('УДАЛИТЬ профиль '+clientName(u)+'?\n\nБудут стёрты: заказы и выданные ключи в инвентаре, тикеты, отзывы, подписки. Статистика продаж по этим заказам тоже пропадёт.\n\nЕсли нужно просто остановить нарушителя — лучше заблокируй: после удаления он сможет зайти снова.'))return;try{await apiRequest('/api/admin/clients/'+uid,{method:'DELETE'});showNotif('🗑 ПРОФИЛЬ УДАЛЁН');renderAdmin('clients');}catch(e){showNotif('⚠️ '+String(e.message).toUpperCase());}};
+      }catch(e){out.innerHTML=`<div class="empty">${esc(e.message)}</div>`;}
+    };
+    let t;document.getElementById('cl-search').oninput=e=>{clearTimeout(t);const v=e.target.value;t=setTimeout(()=>loadList(v),300);};
+    loadList();return true;
+  }
   /* ---- ПРОМОКОДЫ ---- */
   if(section==='promos'){
     out.innerHTML=`<div class="admin-form"><label>ПРОМОКОД</label><input id="pr-code" maxlength="24" placeholder="SUMMER10"><label>СКИДКА, %</label><input id="pr-pct" type="number" min="1" max="90" value="10"><label>ЛИМИТ ИСПОЛЬЗОВАНИЙ (0 = БЕЗ ЛИМИТА)</label><input id="pr-max" type="number" min="0" value="0"><button class="profile-action" id="pr-add">➕ СОЗДАТЬ ПРОМОКОД</button></div><div id="pr-list"><div class="empty">Загрузка...</div></div>`;
@@ -1328,10 +1432,7 @@ function productForm(product=null){
 <label>ОПИСАНИЕ</label><textarea id="p-description">${esc(p.description||'')}</textarea>
 <label>ФУНКЦИИ — ПО ОДНОЙ НА СТРОКУ</label><textarea id="p-features">${esc((p.features||[]).join('\n'))}</textarea>
 <label>ИНСТРУКЦИЯ ПО УСТАНОВКЕ (ПОКАЖЕТСЯ ПОСЛЕ ПОКУПКИ)</label><textarea id="p-instruction" style="min-height:110px">${esc(p.instruction||'')}</textarea>
-<label>ЦЕНА UAH</label><input id="p-uah" type="number" value="${Number(p.price_rub||0)}">
-<label>СТАРАЯ ЦЕНА UAH (ЗАЧЁРКНУТАЯ, НЕОБЯЗАТЕЛЬНО)</label><input id="p-old-uah" type="number" value="${Number(p.old_price_rub||0)||''}">
-<label>ЦЕНА STARS</label><input id="p-stars" type="number" value="${Number(p.price_stars||1)}">
-<label>СТАРАЯ ЦЕНА STARS (НЕОБЯЗАТЕЛЬНО)</label><input id="p-old-stars" type="number" value="${Number(p.old_price_stars||0)||''}">
+<label>ЦЕНЫ ПО СРОКАМ (КАЖДЫЙ СРОК — СВОЯ ЦЕНА)</label><div id="p-prices"></div>
 <label>ВИДЕО (ССЫЛКА, НЕОБЯЗАТЕЛЬНО)</label><input id="p-video" value="${esc(p.video_url||'')}" placeholder="https://...">
 <div style="display:flex;align-items:center;gap:10px;margin:12px 0;font-size:6px;color:var(--text2)"><div class="toggle ${trial?'on':''}" id="p-trial"></div><span>🎁 ПРОБНЫЙ КЛЮЧ НА 1 ЧАС</span></div>
 <label>ГЛАВНОЕ ФОТО</label><input id="p-photo" type="file" accept="image/jpeg,image/png,image/webp">
@@ -1342,7 +1443,18 @@ function productForm(product=null){
 </div>`);
 
   body.querySelectorAll('#p-devs [data-dev]').forEach(b=>b.onclick=()=>{b.classList.toggle('active');Sound.click();});
-  body.querySelectorAll('#p-durs [data-dur]').forEach(b=>b.onclick=()=>{b.classList.toggle('active');Sound.click();});
+  const priceState={};
+  [1,7,30].forEach(d=>{const pr=(p.prices||{})[String(d)];priceState[d]={uah:pr?pr.uah:Number(p.price_rub||0),stars:pr?pr.stars:Number(p.price_stars||1),old:pr&&pr.old_uah?pr.old_uah:''};});
+  const drawPrices=()=>{
+    const act=[...body.querySelectorAll('#p-durs .active')].map(b=>Number(b.dataset.dur)).sort((a,b)=>a-b);
+    document.getElementById('p-prices').innerHTML=act.map(d=>`<div class="rank-card" style="margin:8px 0"><div class="rank-name" style="font-size:7px;margin-bottom:6px">💰 ${durationText(d)}</div>
+<label>ЦЕНА UAH</label><input type="number" min="0" data-pr="${d}:uah" value="${priceState[d].uah}">
+<label>ЦЕНА STARS</label><input type="number" min="1" data-pr="${d}:stars" value="${priceState[d].stars}">
+<label>СТАРАЯ ЦЕНА UAH (ЗАЧЁРКНУТАЯ, НЕОБЯЗАТЕЛЬНО)</label><input type="number" min="0" data-pr="${d}:old" value="${priceState[d].old}"></div>`).join('')||'<div class="key-hint">ВЫБЕРИ ХОТЯ БЫ ОДИН СРОК</div>';
+    document.querySelectorAll('#p-prices [data-pr]').forEach(i=>i.oninput=()=>{const [d,f]=i.dataset.pr.split(':');priceState[d][f]=i.value;});
+  };
+  body.querySelectorAll('#p-durs [data-dur]').forEach(b=>b.onclick=()=>{b.classList.toggle('active');Sound.click();drawPrices();});
+  drawPrices();
   body.querySelectorAll('#p-badges [data-badge]').forEach(b=>b.onclick=()=>{b.classList.toggle('active');Sound.click();});
   document.getElementById('p-trial').onclick=e=>{trial=!trial;e.currentTarget.classList.toggle('on',trial);};
   document.getElementById('p-photo').onchange=ev=>{const f=ev.target.files?.[0];if(!f)return;if(f.size>8*1024*1024){showNotif('ФОТО БОЛЬШЕ 8 МБ');return;}const r=new FileReader();r.onload=()=>{photo={image_data:r.result,image_mime:f.type};document.getElementById('p-photo-preview').innerHTML=`<img class="receipt-preview" src="${r.result}">`;};r.readAsDataURL(f);};
@@ -1368,7 +1480,8 @@ function productForm(product=null){
     if(!devs.length){showNotif('⚠️ ВЫБЕРИ ХОТЯ БЫ ОДНО УСТРОЙСТВО');return;}
     const durs=[...body.querySelectorAll('#p-durs .active')].map(b=>Number(b.dataset.dur));
     if(!durs.length){showNotif('⚠️ ВЫБЕРИ ХОТЯ БЫ ОДИН СРОК');return;}
-    const num=id=>Number(document.getElementById(id).value)||0;
+    const prices={};
+    for(const d of durs){const ps=priceState[d],u=Number(ps.uah),st=Number(ps.stars);if(!(u>=0)||!(st>=1)){showNotif('⚠️ ПРОВЕРЬ ЦЕНЫ: '+durationText(d));return;}prices[d]={uah:u,stars:st,old_uah:Number(ps.old)||null};}
     const data={
       name:document.getElementById('p-name').value,
       game:document.getElementById('p-game').value,
@@ -1384,8 +1497,7 @@ function productForm(product=null){
       features:document.getElementById('p-features').value.split('\n').map(x=>x.trim()).filter(Boolean),
       instruction:document.getElementById('p-instruction').value,
       durations:[...new Set([...durs,...(p.durations||[]).map(Number).filter(d=>![1,7,30].includes(d))])].sort((a,b)=>a-b),
-      price_rub:num('p-uah'),price_stars:num('p-stars'),
-      old_price_rub:num('p-old-uah')||null,old_price_stars:num('p-old-stars')||null,
+      prices,price_rub:Math.min(...durs.map(d=>prices[d].uah)),price_stars:Math.min(...durs.map(d=>prices[d].stars)),
       video_url:document.getElementById('p-video').value.trim(),
       trial,
       keep_screenshots:keep,new_screenshots:added,
@@ -1415,7 +1527,7 @@ buildGameTabs();
 syncSticky();
 loadCheats();
 loadReviews();
-apiRequest('/api/profile').then(d=>{profileData=d;checkExpiring();}).catch(()=>{});
+apiRequest('/api/profile').then(d=>{profileData=d;checkExpiring();if(d.view_as==='buyer'){const pill=document.createElement('div');pill.className='role-pill';pill.textContent='👤 РЕЖИМ ПОКУПАТЕЛЯ · НАЖМИ, ЧТОБЫ ВЕРНУТЬСЯ В АДМИНА';pill.onclick=toggleRole;document.body.appendChild(pill);}}).catch(()=>{});
 document.getElementById('about-support').onclick=openSupport;
 document.getElementById('lightbox').onclick=()=>document.getElementById('lightbox').classList.remove('open');
 document.addEventListener('click',e=>{const z=e.target.closest('[data-zoom]');if(z){document.getElementById('lightbox-img').src=z.dataset.zoom;document.getElementById('lightbox').classList.add('open');}});
