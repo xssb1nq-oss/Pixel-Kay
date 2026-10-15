@@ -59,6 +59,8 @@ NEW_TABLES = [
     "CREATE TABLE IF NOT EXISTS trials (user_id BIGINT NOT NULL, cheat_id INTEGER NOT NULL, PRIMARY KEY (user_id, cheat_id))",
     "CREATE TABLE IF NOT EXISTS product_images (id SERIAL PRIMARY KEY, cheat_id INTEGER NOT NULL, data BYTEA NOT NULL, mime TEXT NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_product_images_cheat ON product_images(cheat_id)",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS banned BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS amount_uah INTEGER",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS amount_stars INTEGER",
@@ -331,7 +333,7 @@ async def get_inventory(user_id):
         return await conn.fetch('''SELECT o.id AS order_id,o.key_given,o.duration_days,o.confirmed_at,o.expires_at,o.quantity,o.is_trial,
             c.id AS cheat_id,c.id AS product_id,c.name,c.game,c.device,c.category,c.extra
             FROM orders o LEFT JOIN cheats c ON c.id=o.cheat_id
-            WHERE o.user_id=$1 AND o.status='confirmed' ORDER BY o.confirmed_at DESC''', int(user_id))
+            WHERE o.user_id=$1 AND o.status='confirmed' AND o.hidden=FALSE ORDER BY o.confirmed_at DESC''', int(user_id))
     finally: await conn.close()
 
 
@@ -419,7 +421,7 @@ async def mark_blocked(user_id):
     await execute('UPDATE users SET blocked=TRUE WHERE user_id=$1', int(user_id))
 
 async def broadcast_ids():
-    return [int(r['user_id']) for r in await fetch('SELECT user_id FROM users WHERE blocked=FALSE')]
+    return [int(r['user_id']) for r in await fetch('SELECT user_id FROM users WHERE blocked=FALSE AND banned=FALSE')]
 
 async def referral_stats(user_id):
     row = await fetchrow('''SELECT COUNT(*) AS total,
@@ -473,7 +475,7 @@ async def set_subscription(user_id, game, on):
         await execute('DELETE FROM subscriptions WHERE user_id=$1 AND game=$2', int(user_id), game.casefold())
 
 async def subscribers(game):
-    return [int(r['user_id']) for r in await fetch('SELECT s.user_id FROM subscriptions s JOIN users u ON u.user_id=s.user_id WHERE s.game=$1 AND u.blocked=FALSE', game.casefold())]
+    return [int(r['user_id']) for r in await fetch('SELECT s.user_id FROM subscriptions s JOIN users u ON u.user_id=s.user_id WHERE s.game=$1 AND u.blocked=FALSE AND u.banned=FALSE', game.casefold())]
 
 # ---- тикеты ----
 async def _with_messages(tickets):
@@ -569,3 +571,73 @@ async def stats():
         'total': await period(""),
         'top': [{'name': r['name'], 'sales': int(r['sales'])} for r in top],
     }
+
+
+# ---- очистка инвентаря (скрытие из профиля; история заказов, ранг и отзывы сохраняются) ----
+async def hide_inventory(user_id, order_id=None, scope=None):
+    if order_id is not None:
+        res = await execute("UPDATE orders SET hidden=TRUE WHERE id=$1 AND user_id=$2 AND status='confirmed'", int(order_id), int(user_id))
+    elif scope == 'expired':
+        res = await execute("UPDATE orders SET hidden=TRUE WHERE user_id=$1 AND status='confirmed' AND expires_at<=NOW()", int(user_id))
+    elif scope == 'all':
+        res = await execute("UPDATE orders SET hidden=TRUE WHERE user_id=$1 AND status='confirmed'", int(user_id))
+    else:
+        return 0
+    try: return int(str(res).split()[-1])
+    except Exception: return 0
+
+
+# ---- склад: просмотр и удаление СВОБОДНЫХ ключей (выданные не трогаем) ----
+async def list_free_keys(cheat_id, duration_days):
+    return await fetch('''SELECT id, key_value FROM keys WHERE cheat_id=$1 AND duration_days=$2 AND is_used=FALSE
+        ORDER BY id LIMIT 300''', int(cheat_id), int(duration_days))
+
+async def delete_free_key(key_id):
+    res = await execute('DELETE FROM keys WHERE id=$1 AND is_used=FALSE', int(key_id))
+    try: return int(str(res).split()[-1])
+    except Exception: return 0
+
+async def clear_free_keys(cheat_id, duration_days):
+    res = await execute('DELETE FROM keys WHERE cheat_id=$1 AND duration_days=$2 AND is_used=FALSE', int(cheat_id), int(duration_days))
+    try: return int(str(res).split()[-1])
+    except Exception: return 0
+
+# ---- новости: редактирование ----
+async def update_news(news_id, title, body, pinned):
+    return await fetchval('UPDATE news SET title=$2, body=$3, pinned=$4 WHERE id=$1 RETURNING id', int(news_id), title, body, bool(pinned))
+
+# ---- клиенты ----
+async def list_clients(q=''):
+    q = (q or '').strip().lstrip('@')
+    return await fetch('''SELECT u.user_id, u.username, u.first_name, u.created_at, u.last_seen, u.banned,
+        (SELECT COUNT(*) FROM orders o WHERE o.user_id=u.user_id AND o.status='confirmed' AND NOT o.is_trial) AS purchases,
+        (SELECT COALESCE(SUM(COALESCE(o.amount_uah, c.price_rub)),0) FROM orders o LEFT JOIN cheats c ON c.id=o.cheat_id
+            WHERE o.user_id=u.user_id AND o.status='confirmed' AND NOT o.is_trial AND o.payment_type='card') AS spent
+        FROM users u
+        WHERE ($1='' OR u.username ILIKE $2 OR u.first_name ILIKE $2 OR u.user_id::text=$1)
+        ORDER BY u.last_seen DESC NULLS LAST LIMIT 100''', q, f'%{q}%')
+
+async def get_user(user_id):
+    return await fetchrow('SELECT * FROM users WHERE user_id=$1', int(user_id))
+
+async def set_banned(user_id, banned):
+    await execute('UPDATE users SET banned=$2 WHERE user_id=$1', int(user_id), bool(banned))
+
+async def is_banned(user_id):
+    return bool(await fetchval('SELECT banned FROM users WHERE user_id=$1', int(user_id)))
+
+async def delete_user(user_id):
+    conn = await get_db()
+    try:
+        async with conn.transaction():
+            uid = int(user_id)
+            await conn.execute('DELETE FROM ticket_messages WHERE ticket_id IN (SELECT id FROM tickets WHERE user_id=$1)', uid)
+            await conn.execute('DELETE FROM tickets WHERE user_id=$1', uid)
+            await conn.execute('DELETE FROM reviews WHERE user_id=$1', uid)
+            await conn.execute('DELETE FROM subscriptions WHERE user_id=$1', uid)
+            await conn.execute('DELETE FROM trials WHERE user_id=$1', uid)
+            await conn.execute('DELETE FROM orders WHERE user_id=$1', uid)
+            await conn.execute('UPDATE users SET referrer_id=NULL WHERE referrer_id=$1', uid)
+            await conn.execute('DELETE FROM users WHERE user_id=$1', uid)
+    finally:
+        await conn.close()
