@@ -28,7 +28,7 @@ class OrderStates(StatesGroup):
 
 
 def pixel_header():
-    return '🎮 PIXEL KEY'
+    return '🎮 PIXEL KAY'
 
 
 def main_keyboard():
