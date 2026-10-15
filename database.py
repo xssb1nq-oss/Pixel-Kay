@@ -1,13 +1,74 @@
+import asyncio
 import asyncpg
 import json
 import os
 
+_pools = {}
+
+async def _get_pool():
+    loop = asyncio.get_running_loop()
+    pool = _pools.get(id(loop))
+    if pool is None:
+        pool = await asyncpg.create_pool(os.getenv('DATABASE_URL'), min_size=1, max_size=8)
+        _pools[id(loop)] = pool
+    return pool
+
+class _Conn:
+    """Обёртка: conn.close() возвращает соединение в пул (остальной код не меняется)."""
+    def __init__(self, conn, pool):
+        self._c = conn
+        self._p = pool
+    def __getattr__(self, name):
+        return getattr(self._c, name)
+    async def close(self):
+        if self._c is not None:
+            c, self._c = self._c, None
+            await self._p.release(c)
+
 async def get_db():
-    return await asyncpg.connect(os.getenv('DATABASE_URL'))
+    pool = await _get_pool()
+    return _Conn(await pool.acquire(), pool)
+
+NEW_TABLES = [
+    """CREATE TABLE IF NOT EXISTS users (
+        user_id BIGINT PRIMARY KEY, username TEXT, first_name TEXT,
+        referrer_id BIGINT, created_at TIMESTAMP DEFAULT NOW(), last_seen TIMESTAMP DEFAULT NOW(),
+        blocked BOOLEAN NOT NULL DEFAULT FALSE)""",
+    """CREATE TABLE IF NOT EXISTS news (
+        id SERIAL PRIMARY KEY, title TEXT, body TEXT NOT NULL,
+        pinned BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS reviews (
+        id SERIAL PRIMARY KEY, product_id INTEGER, user_id BIGINT, author TEXT NOT NULL,
+        rating INTEGER NOT NULL DEFAULT 5, text TEXT NOT NULL,
+        verified BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS subscriptions (
+        user_id BIGINT NOT NULL, game TEXT NOT NULL, PRIMARY KEY (user_id, game))""",
+    """CREATE TABLE IF NOT EXISTS tickets (
+        id SERIAL PRIMARY KEY, user_id BIGINT NOT NULL, username TEXT, subject TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open', created_at TIMESTAMP DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS ticket_messages (
+        id SERIAL PRIMARY KEY, ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+        sender TEXT NOT NULL, text TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS promos (
+        id SERIAL PRIMARY KEY, code TEXT UNIQUE NOT NULL, percent INTEGER NOT NULL,
+        max_uses INTEGER NOT NULL DEFAULT 0, uses INTEGER NOT NULL DEFAULT 0)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_reviews_user_product ON reviews(user_id, product_id) WHERE user_id IS NOT NULL AND verified=TRUE",
+    "ALTER TABLE cheats ADD COLUMN IF NOT EXISTS extra TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_code TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_trial BOOLEAN NOT NULL DEFAULT FALSE",
+    "CREATE TABLE IF NOT EXISTS trials (user_id BIGINT NOT NULL, cheat_id INTEGER NOT NULL, PRIMARY KEY (user_id, cheat_id))",
+    "CREATE TABLE IF NOT EXISTS product_images (id SERIAL PRIMARY KEY, cheat_id INTEGER NOT NULL, data BYTEA NOT NULL, mime TEXT NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS idx_product_images_cheat ON product_images(cheat_id)",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS amount_uah INTEGER",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS amount_stars INTEGER",
+    "INSERT INTO users (user_id, username) SELECT DISTINCT ON (user_id) user_id, username FROM orders ORDER BY user_id, created_at DESC ON CONFLICT (user_id) DO NOTHING",
+]
 
 async def init_db():
     conn = await get_db()
     try:
+        await conn.execute('SELECT pg_advisory_lock(727001)')
         await conn.execute('''CREATE TABLE IF NOT EXISTS cheats (
             id SERIAL PRIMARY KEY, name TEXT NOT NULL, game TEXT NOT NULL,
             device TEXT NOT NULL, description TEXT, price_rub INTEGER NOT NULL,
@@ -35,12 +96,16 @@ async def init_db():
         ]
         for sql in migrations:
             await conn.execute(sql)
+        for sql in NEW_TABLES:
+            await conn.execute(sql)
         await conn.execute("UPDATE orders SET confirmed_at=created_at WHERE status='confirmed' AND confirmed_at IS NULL")
         await conn.execute("UPDATE orders SET expires_at=COALESCE(confirmed_at,created_at)+(duration_days*INTERVAL '1 day') WHERE status='confirmed' AND expires_at IS NULL")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, created_at DESC)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status, created_at DESC)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_keys_available ON keys(cheat_id, duration_days, is_used)")
     finally:
+        try: await conn.execute('SELECT pg_advisory_unlock(727001)')
+        except Exception: pass
         await conn.close()
 
 async def get_cheats(include_inactive=False):
@@ -141,11 +206,13 @@ async def keys_count(cheat_id):
         return {int(r['duration_days']):int(r['amount']) for r in rows}
     finally: await conn.close()
 
-async def create_order(user_id, username, cheat_id, payment_type, duration_days=30):
+async def create_order(user_id, username, cheat_id, payment_type, duration_days=30, quantity=1,
+                       amount_uah=None, amount_stars=None, promo_code=None):
     conn = await get_db()
     try:
-        return await conn.fetchval('''INSERT INTO orders (user_id,username,cheat_id,payment_type,duration_days)
-            VALUES ($1,$2,$3,$4,$5) RETURNING id''', int(user_id), username, int(cheat_id), payment_type, int(duration_days))
+        return await conn.fetchval('''INSERT INTO orders (user_id,username,cheat_id,payment_type,duration_days,quantity,amount_uah,amount_stars,promo_code)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id''', int(user_id), username, int(cheat_id), payment_type,
+            int(duration_days), int(quantity), amount_uah, amount_stars, promo_code)
     finally: await conn.close()
 
 async def get_order(order_id):
@@ -166,40 +233,55 @@ async def update_order_receipt(order_id, file_id):
         return await conn.execute("UPDATE orders SET receipt_file_id=$1 WHERE id=$2 AND status='pending'", file_id, int(order_id))
     finally: await conn.close()
 
+class _NoKey(Exception):
+    pass
+
+_PICK_KEY_SQL = '''SELECT * FROM keys k
+    WHERE k.cheat_id=$1 AND k.duration_days=$2 AND k.is_used=FALSE
+      AND NOT EXISTS (SELECT 1 FROM keys prior WHERE LOWER(prior.key_value)=LOWER(k.key_value) AND prior.id<k.id)
+      AND NOT EXISTS (SELECT 1 FROM keys used WHERE LOWER(used.key_value)=LOWER(k.key_value) AND used.is_used=TRUE)
+    ORDER BY k.id LIMIT 1 FOR UPDATE OF k SKIP LOCKED'''
+
+async def _take_key(conn, cheat_id, duration_days):
+    while True:
+        candidate = await conn.fetchrow(_PICK_KEY_SQL, cheat_id, duration_days)
+        if not candidate:
+            return None
+        await conn.fetchval('SELECT pg_advisory_xact_lock(hashtext(LOWER($1)))', candidate['key_value'])
+        already_used = await conn.fetchval(
+            'SELECT EXISTS(SELECT 1 FROM keys WHERE LOWER(key_value)=LOWER($1) AND is_used=TRUE)', candidate['key_value'])
+        if already_used:
+            continue
+        await conn.execute('UPDATE keys SET is_used=TRUE WHERE id=$1', candidate['id'])
+        return candidate
+
 async def approve_order(order_id, charge_id=None):
-    """Atomically assign one matching key; its validity begins at confirmation."""
+    """Atomically assign matching key(s); validity begins at confirmation."""
     conn = await get_db()
     try:
-        async with conn.transaction():
-            order = await conn.fetchrow('SELECT * FROM orders WHERE id=$1 FOR UPDATE', int(order_id))
-            if not order: return {'ok':False,'reason':'not_found'}
-            if order['status'] == 'confirmed': return {'ok':True,'already':True,'order':dict(order),'key':order['key_given']}
-            if order['status'] != 'pending': return {'ok':False,'reason':'not_pending'}
-            key = None
-            while True:
-                candidate = await conn.fetchrow('''SELECT * FROM keys k
-                    WHERE k.cheat_id=$1 AND k.duration_days=$2 AND k.is_used=FALSE
-                      AND NOT EXISTS (SELECT 1 FROM keys prior
-                          WHERE LOWER(prior.key_value)=LOWER(k.key_value) AND prior.id<k.id)
-                      AND NOT EXISTS (SELECT 1 FROM keys used
-                          WHERE LOWER(used.key_value)=LOWER(k.key_value) AND used.is_used=TRUE)
-                    ORDER BY k.id LIMIT 1 FOR UPDATE OF k SKIP LOCKED''',
-                    order['cheat_id'], order['duration_days'])
-                if not candidate:
-                    return {'ok':False,'reason':'no_key'}
-                await conn.fetchval('SELECT pg_advisory_xact_lock(hashtext(LOWER($1)))', candidate['key_value'])
-                already_used = await conn.fetchval(
-                    'SELECT EXISTS(SELECT 1 FROM keys WHERE LOWER(key_value)=LOWER($1) AND is_used=TRUE)',
-                    candidate['key_value'])
-                if not already_used:
-                    key = candidate
-                    break
-            row = await conn.fetchrow('''UPDATE orders SET status='confirmed',key_given=$2,confirmed_at=NOW(),
-                expires_at=NOW() + ($3 * INTERVAL '1 day'),telegram_payment_charge_id=COALESCE($4,telegram_payment_charge_id)
-                WHERE id=$1 RETURNING *''', int(order_id), key['key_value'], int(order['duration_days']), charge_id)
-            await conn.execute('UPDATE keys SET is_used=TRUE WHERE id=$1', key['id'])
-            return {'ok':True,'already':False,'order':dict(row),'key':key['key_value']}
-    finally: await conn.close()
+        try:
+            async with conn.transaction():
+                order = await conn.fetchrow('SELECT * FROM orders WHERE id=$1 FOR UPDATE', int(order_id))
+                if not order: return {'ok':False,'reason':'not_found'}
+                if order['status'] == 'confirmed': return {'ok':True,'already':True,'order':dict(order),'key':order['key_given']}
+                if order['status'] != 'pending': return {'ok':False,'reason':'not_pending'}
+                taken = []
+                for _ in range(max(1, int(order['quantity'] or 1))):
+                    key = await _take_key(conn, order['cheat_id'], order['duration_days'])
+                    if not key:
+                        raise _NoKey()
+                    taken.append(key['key_value'])
+                joined = '\n'.join(taken)
+                row = await conn.fetchrow('''UPDATE orders SET status='confirmed',key_given=$2,confirmed_at=NOW(),
+                    expires_at=NOW() + ($3 * INTERVAL '1 day'),telegram_payment_charge_id=COALESCE($4,telegram_payment_charge_id)
+                    WHERE id=$1 RETURNING *''', int(order_id), joined, int(order['duration_days']), charge_id)
+                if order['promo_code']:
+                    await conn.execute('UPDATE promos SET uses=uses+1 WHERE code=$1', order['promo_code'])
+                return {'ok':True,'already':False,'order':dict(row),'key':joined}
+        except _NoKey:
+            return {'ok':False,'reason':'no_key'}
+    finally:
+        await conn.close()
 
 async def confirm_order(order_id, key_value):
     """Legacy confirmation path; reserve a credential only if it is still unused."""
@@ -246,8 +328,244 @@ async def list_orders(user_id=None, pending_only=False):
 async def get_inventory(user_id):
     conn = await get_db()
     try:
-        return await conn.fetch('''SELECT o.id AS order_id,o.key_given,o.duration_days,o.confirmed_at,o.expires_at,
-            c.id AS cheat_id,c.name,c.game,c.device,c.category
+        return await conn.fetch('''SELECT o.id AS order_id,o.key_given,o.duration_days,o.confirmed_at,o.expires_at,o.quantity,o.is_trial,
+            c.id AS cheat_id,c.id AS product_id,c.name,c.game,c.device,c.category,c.extra
             FROM orders o LEFT JOIN cheats c ON c.id=o.cheat_id
             WHERE o.user_id=$1 AND o.status='confirmed' ORDER BY o.confirmed_at DESC''', int(user_id))
     finally: await conn.close()
+
+
+# ===================== ДОПОЛНЕНИЯ =====================
+from datetime import datetime, timezone
+
+def _naive_utc(value):
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+async def fetch(sql, *args):
+    conn = await get_db()
+    try: return await conn.fetch(sql, *args)
+    finally: await conn.close()
+
+async def fetchrow(sql, *args):
+    conn = await get_db()
+    try: return await conn.fetchrow(sql, *args)
+    finally: await conn.close()
+
+async def fetchval(sql, *args):
+    conn = await get_db()
+    try: return await conn.fetchval(sql, *args)
+    finally: await conn.close()
+
+async def execute(sql, *args):
+    conn = await get_db()
+    try: return await conn.execute(sql, *args)
+    finally: await conn.close()
+
+# ---- склад: одним запросом для всех товаров ----
+async def keys_count_all():
+    rows = await fetch('''SELECT k.cheat_id, k.duration_days, COUNT(*) AS amount FROM keys k
+        WHERE k.is_used=FALSE
+          AND NOT EXISTS (SELECT 1 FROM keys prior WHERE LOWER(prior.key_value)=LOWER(k.key_value) AND prior.id<k.id)
+          AND NOT EXISTS (SELECT 1 FROM keys used WHERE LOWER(used.key_value)=LOWER(k.key_value) AND used.is_used=TRUE)
+        GROUP BY k.cheat_id, k.duration_days''')
+    out = {}
+    for r in rows:
+        out.setdefault(int(r['cheat_id']), {})[int(r['duration_days'])] = int(r['amount'])
+    return out
+
+async def add_duration(cheat_id, duration):
+    row = await fetchrow('SELECT durations FROM cheats WHERE id=$1', int(cheat_id))
+    try: cur = [int(x) for x in json.loads(row['durations'] or '[30]')]
+    except Exception: cur = [30]
+    if int(duration) not in cur:
+        cur = sorted(set(cur + [int(duration)]))
+        await execute('UPDATE cheats SET durations=$2 WHERE id=$1', int(cheat_id), json.dumps(cur))
+    return cur
+
+# ---- доп. поля товара и скриншоты ----
+async def set_extra(cheat_id, extra):
+    await execute('UPDATE cheats SET extra=$2 WHERE id=$1', int(cheat_id), json.dumps(extra, ensure_ascii=False))
+
+async def add_shot(cheat_id, data, mime):
+    return await fetchval('INSERT INTO product_images (cheat_id,data,mime) VALUES ($1,$2,$3) RETURNING id', int(cheat_id), data, mime)
+
+async def shots_map():
+    rows = await fetch('SELECT id, cheat_id FROM product_images ORDER BY id')
+    out = {}
+    for r in rows:
+        out.setdefault(int(r['cheat_id']), []).append(int(r['id']))
+    return out
+
+async def prune_shots(cheat_id, keep_ids):
+    await execute('DELETE FROM product_images WHERE cheat_id=$1 AND NOT (id = ANY($2::INT[]))', int(cheat_id), [int(x) for x in keep_ids])
+
+async def get_shot(shot_id):
+    return await fetchrow('SELECT data, mime FROM product_images WHERE id=$1', int(shot_id))
+
+# ---- пользователи ----
+async def upsert_user(user_id, username=None, first_name=None, referrer_id=None):
+    ref = int(referrer_id) if referrer_id and int(referrer_id) != int(user_id) else None
+    await execute('''INSERT INTO users (user_id,username,first_name,referrer_id) VALUES ($1,$2,$3,$4)
+        ON CONFLICT (user_id) DO UPDATE SET username=EXCLUDED.username, first_name=EXCLUDED.first_name,
+        last_seen=NOW(), blocked=FALSE''', int(user_id), username, first_name, ref)
+
+async def mark_blocked(user_id):
+    await execute('UPDATE users SET blocked=TRUE WHERE user_id=$1', int(user_id))
+
+async def broadcast_ids():
+    return [int(r['user_id']) for r in await fetch('SELECT user_id FROM users WHERE blocked=FALSE')]
+
+async def referral_stats(user_id):
+    row = await fetchrow('''SELECT COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id=u.user_id AND o.status='confirmed' AND NOT o.is_trial)) AS paid
+        FROM users u WHERE u.referrer_id=$1''', int(user_id))
+    return int(row['total']), int(row['paid'])
+
+async def purchases_count(user_id):
+    return int(await fetchval("SELECT COUNT(*) FROM orders WHERE user_id=$1 AND status='confirmed' AND NOT is_trial", int(user_id)) or 0)
+
+# ---- новости ----
+async def list_news():
+    return await fetch('SELECT * FROM news ORDER BY pinned DESC, created_at DESC LIMIT 50')
+
+async def add_news(title, body, pinned=False):
+    return await fetchval('INSERT INTO news (title,body,pinned) VALUES ($1,$2,$3) RETURNING id', title, body, bool(pinned))
+
+async def delete_news(news_id):
+    await execute('DELETE FROM news WHERE id=$1', int(news_id))
+
+# ---- отзывы ----
+async def list_reviews():
+    return await fetch('SELECT id,product_id,author,rating,text,verified,created_at FROM reviews ORDER BY created_at DESC LIMIT 500')
+
+async def get_review(review_id):
+    return await fetchrow('SELECT * FROM reviews WHERE id=$1', int(review_id))
+
+async def add_review(product_id, user_id, author, rating, text, verified, created_at=None):
+    when = _naive_utc(created_at) if created_at else datetime.utcnow()
+    return await fetchval('''INSERT INTO reviews (product_id,user_id,author,rating,text,verified,created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id''', product_id, user_id, author, int(rating), text, bool(verified), when)
+
+async def update_review(review_id, product_id, author, rating, text, created_at):
+    return await fetchval('''UPDATE reviews SET product_id=$2,author=$3,rating=$4,text=$5,created_at=$6
+        WHERE id=$1 RETURNING id''', int(review_id), product_id, author, int(rating), text, _naive_utc(created_at))
+
+async def delete_review(review_id):
+    await execute('DELETE FROM reviews WHERE id=$1', int(review_id))
+
+async def has_bought(user_id, cheat_id):
+    return bool(await fetchval("SELECT EXISTS(SELECT 1 FROM orders WHERE user_id=$1 AND cheat_id=$2 AND status='confirmed' AND NOT is_trial)", int(user_id), int(cheat_id)))
+
+async def has_reviewed(user_id, cheat_id):
+    return bool(await fetchval("SELECT EXISTS(SELECT 1 FROM reviews WHERE user_id=$1 AND product_id=$2 AND verified=TRUE)", int(user_id), int(cheat_id)))
+
+# ---- подписки на игры ----
+async def set_subscription(user_id, game, on):
+    if on:
+        await execute('INSERT INTO subscriptions (user_id,game) VALUES ($1,$2) ON CONFLICT DO NOTHING', int(user_id), game.casefold())
+    else:
+        await execute('DELETE FROM subscriptions WHERE user_id=$1 AND game=$2', int(user_id), game.casefold())
+
+async def subscribers(game):
+    return [int(r['user_id']) for r in await fetch('SELECT s.user_id FROM subscriptions s JOIN users u ON u.user_id=s.user_id WHERE s.game=$1 AND u.blocked=FALSE', game.casefold())]
+
+# ---- тикеты ----
+async def _with_messages(tickets):
+    if not tickets: return []
+    ids = [int(t['id']) for t in tickets]
+    msgs = await fetch('SELECT * FROM ticket_messages WHERE ticket_id = ANY($1::INT[]) ORDER BY id', ids)
+    by = {}
+    for m in msgs:
+        by.setdefault(int(m['ticket_id']), []).append({'from':m['sender'],'text':m['text'],'created_at':m['created_at']})
+    out = []
+    for t in tickets:
+        d = dict(t); d['messages'] = by.get(int(t['id']), []); out.append(d)
+    return out
+
+async def create_ticket(user_id, username, subject, text):
+    tid = await fetchval('INSERT INTO tickets (user_id,username,subject) VALUES ($1,$2,$3) RETURNING id', int(user_id), username, subject)
+    await execute("INSERT INTO ticket_messages (ticket_id,sender,text) VALUES ($1,'user',$2)", tid, text)
+    return tid
+
+async def list_tickets(user_id=None):
+    if user_id is None:
+        rows = await fetch('SELECT * FROM tickets ORDER BY (status=\'open\') DESC, id DESC LIMIT 100')
+    else:
+        rows = await fetch('SELECT * FROM tickets WHERE user_id=$1 ORDER BY id DESC LIMIT 50', int(user_id))
+    return await _with_messages(rows)
+
+async def get_ticket(ticket_id):
+    rows = await fetch('SELECT * FROM tickets WHERE id=$1', int(ticket_id))
+    res = await _with_messages(rows)
+    return res[0] if res else None
+
+async def add_ticket_message(ticket_id, sender, text):
+    await execute('INSERT INTO ticket_messages (ticket_id,sender,text) VALUES ($1,$2,$3)', int(ticket_id), sender, text)
+    if sender == 'user':
+        await execute("UPDATE tickets SET status='open' WHERE id=$1", int(ticket_id))
+
+async def close_ticket(ticket_id):
+    await execute("UPDATE tickets SET status='closed' WHERE id=$1", int(ticket_id))
+
+# ---- промокоды ----
+async def list_promos():
+    return await fetch('SELECT * FROM promos ORDER BY id DESC')
+
+async def add_promo(code, percent, max_uses):
+    return await fetchval('INSERT INTO promos (code,percent,max_uses) VALUES ($1,$2,$3) RETURNING id', code, int(percent), int(max_uses))
+
+async def delete_promo(promo_id):
+    await execute('DELETE FROM promos WHERE id=$1', int(promo_id))
+
+async def find_promo(code):
+    if not code: return None
+    row = await fetchrow('SELECT * FROM promos WHERE UPPER(code)=UPPER($1)', code.strip())
+    if not row: return None
+    if int(row['max_uses']) and int(row['uses']) >= int(row['max_uses']): return None
+    return row
+
+# ---- пробный ключ ----
+async def take_trial(user_id, username, cheat_id, durations):
+    conn = await get_db()
+    try:
+        try:
+            async with conn.transaction():
+                ins = await conn.fetchval('INSERT INTO trials (user_id,cheat_id) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING 1', int(user_id), int(cheat_id))
+                if not ins:
+                    return {'ok': False, 'reason': 'used'}
+                for d in sorted(int(x) for x in durations):
+                    key = await _take_key(conn, int(cheat_id), d)
+                    if key:
+                        await conn.execute('''INSERT INTO orders (user_id,username,cheat_id,payment_type,status,key_given,duration_days,
+                            confirmed_at,expires_at,is_trial,quantity) VALUES ($1,$2,$3,'trial','confirmed',$4,$5,NOW(),NOW()+INTERVAL '1 hour',TRUE,1)''',
+                            int(user_id), username, int(cheat_id), key['key_value'], d)
+                        return {'ok': True, 'key': key['key_value']}
+                raise _NoKey()
+        except _NoKey:
+            return {'ok': False, 'reason': 'no_key'}
+    finally:
+        await conn.close()
+
+# ---- статистика ----
+async def stats():
+    async def period(cond):
+        row = await fetchrow(f"""SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN o.payment_type='card'
+            THEN COALESCE(o.amount_uah, c.price_rub*o.quantity) ELSE 0 END),0) AS rev
+            FROM orders o LEFT JOIN cheats c ON c.id=o.cheat_id
+            WHERE o.status='confirmed' AND NOT o.is_trial {cond}""")
+        return {'orders': int(row['n']), 'revenue': int(row['rev'])}
+    top = await fetch("""SELECT c.name, COUNT(*) AS sales FROM orders o JOIN cheats c ON c.id=o.cheat_id
+        WHERE o.status='confirmed' AND NOT o.is_trial GROUP BY c.name ORDER BY sales DESC LIMIT 5""")
+    return {
+        'today': await period("AND o.confirmed_at >= date_trunc('day', NOW())"),
+        'week': await period("AND o.confirmed_at >= NOW() - INTERVAL '7 days'"),
+        'month': await period("AND o.confirmed_at >= NOW() - INTERVAL '30 days'"),
+        'total': await period(""),
+        'top': [{'name': r['name'], 'sales': int(r['sales'])} for r in top],
+    }
